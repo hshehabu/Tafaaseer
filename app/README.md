@@ -1,15 +1,16 @@
 # Tafaseer app
 
-This is the Flutter app: a Quran verse list where long-pressing an ayah opens a sheet with six tafsirs, offline. The scope is in [../docs/v1-scope.md](../docs/v1-scope.md), and the data comes from [../pipeline](../pipeline/README.md).
+This is the Flutter app: the Madani mushaf, page by page, where long-pressing an ayah opens a sheet with six tafsirs, offline. The scope is in [../docs/v1-scope.md](../docs/v1-scope.md) and [../docs/v2-scope.md](../docs/v2-scope.md), and the data comes from [../pipeline](../pipeline/README.md).
 
 ## Run it
 
 ```sh
-# 1. Build the content database once (about 90 s; needs Python 3.10+)
+# 1. Build the content database once (a few minutes the first time; needs Python 3.10+)
 cd pipeline
 py -m tafaseer_pipeline build --out ../app/assets/db/tafaseer.db
 
-# 2. Optional: add the Quran font, see assets/fonts/README.md
+# 2. Add the mushaf fonts (Hafs text, surah header frame, surah-name calligraphy)
+py -m tafaseer_pipeline font
 
 # 3. Run
 cd ../app
@@ -27,9 +28,10 @@ lib/
   core/                     shared, feature-agnostic code
     database/               copy the bundled DB, open it read-only, providers
     domain/ayah_ref.dart    the one value type every feature shares
+    theme/app_palette.dart  Dusty Green colour tokens (light, dark, sepia)
     arabic/ l10n/ logging/ error/ config/ storage/ fonts/ widgets/
   features/
-    quran/                  surah index, juz/hizb list, verse reader, jump, resume
+    quran/                  surah index, juz/hizb list, mushaf pages, jump, resume
     tafsir/                 the long-press sheet (the core feature)
     bookmarks/              bookmark toggle and list
     settings/               theme, font sizes, tashkeel, isnad
@@ -58,11 +60,25 @@ Every feature has the same three layers:
   - The **content database** (Quran and tafsirs) is read-only and replaced on app updates.
   - **User data** (settings, bookmarks, last position) lives in `SharedPreferencesWithCache`.
 
+### The mushaf page
+
+```
+ReaderPage                                         PageView over 604 pages, right to left
+  -> MushafPageView(page)                          quran/presentation/widgets/mushaf_page_view.dart
+     -> mushafPageProvider(page)                   sync: QuranRepository.getPage, 8 pages cached
+     -> _PageLayout                                measured once per page, size and theme
+     -> _PagePainter                               one CustomPainter; a highlight only repaints
+```
+
+- **Size:** one base font size for all pages, from the 75th-percentile line width over a few pages (`MushafFontScale`), nudged −6%..+8% per page so a page of short lines doesn't look sparse.
+- **Lines:** every ayah line is justified to the width by spreading the extra space over the gaps between words. Letters are never stretched. Lines under 60% of the width (the end of a surah, the last page) and the two opening pages are centred. A line that's too wide first tightens its gaps (down to half a space), and only then shrinks a little.
+- **Long-press:** the nearest word on the pressed line gives the ayah. Title and bismillah lines ignore it.
+
 ### What happens on a long-press
 
 ```
-AyahTile.onLongPress
-  -> showTafsirSheet(ayah)                         tafsir/presentation/tafsir_sheet.dart
+MushafPageView.onAyahLongPress
+  -> showTafsirSheet(ayah, onAyahChanged)          tafsir/presentation/tafsir_sheet.dart
      -> ayahTafsirsProvider(ayahId)                 FutureProvider.autoDispose.family
         -> GetAyahTafsirs -> TafsirRepository.getEntriesForAyah
            -> TafsirLocalDataSource.entriesForAyah  one indexed query, ~0.1 ms
@@ -76,8 +92,9 @@ AyahTile.onLongPress
 
 - **Database access:** `sqlite3` uses FFI, with synchronous queries, no platform channel, and prepared statements cached per query string.
 - **Long-press lookup:** about 0.1 ms with every join, through the `(ayah_id, tafsir_id)` primary key.
+- **Mushaf pages:** two indexed queries per page (about 0.2 ms), synchronous so a swipe never waits on a Future. The 8 most recent pages stay cached.
 - **Decoding tafsir text:** most entries take 0–2 ms, and the largest about 10 ms, on a desktop host (`test/real_database_test.dart` prints the slowest). Decoded documents are kept in a 24-entry cache, so switching pills or stepping back to an ayah is instant.
-- **Startup:** preferences load before the first frame, so the theme is right immediately. The 45 MB database is copied into the app's cache directory on first launch only (a second or two, with a progress screen). It's copied again when `ContentDbConfig.bundleVersion` changes or the file is damaged.
+- **Startup:** preferences load before the first frame, so the theme is right immediately. The 48 MB database is copied into the app's cache directory on first launch only (a second or two, with a progress screen). It's copied again when `ContentDbConfig.bundleVersion` changes or the file is damaged.
 - **Long entries:** the sheet builds paragraphs lazily, which matters for al-Qurtubi's 108,000-character entries.
 
 ## Debugging
@@ -92,7 +109,7 @@ AyahTile.onLongPress
 ## Tests
 
 ```sh
-flutter test        # 28 tests: data layer on an in-memory DB, widgets, and the real DB if built
+flutter test        # 34 tests: data layer on an in-memory DB, widgets, and the real DB if built
 flutter analyze     # strict casts/inference + extra lints (analysis_options.yaml)
 ```
 
@@ -102,7 +119,7 @@ flutter analyze     # strict casts/inference + extra lints (analysis_options.yam
 
 1. **Data:** rebuild the database from the official QUL exports, not the GitHub mirror (see ../docs/v1-scope.md).
 2. **Database version:** whenever the shipped database changes, bump `ContentDbConfig.bundleVersion` in `lib/core/config/app_config.dart`.
-3. **Font:** add the KFGQPC font file (assets/fonts/README.md).
+3. **Fonts:** run `py -m tafaseer_pipeline font` so the three mushaf fonts are bundled (see assets/fonts/README.md).
 4. **Application id:** it's currently `app.tafaseer.tafaseer`. Choose the final id before the first Play Store upload, because it can never change after that.
 5. **Release signing:** set up signing in `android/app/build.gradle.kts`. It currently uses the debug keys.
 

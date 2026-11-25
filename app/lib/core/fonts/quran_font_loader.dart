@@ -3,20 +3,38 @@ import 'package:flutter/services.dart';
 import '../config/app_config.dart';
 import '../logging/app_log.dart';
 
-/// Registers the KFGQPC Hafs font if its file is bundled.
+/// Which of the optional mushaf fonts loaded. The page falls back to plain
+/// text for anything that is missing.
+abstract final class QuranFonts {
+  static bool hafs = false;
+
+  /// The ornate surah header frame, the calligraphic bismillah and surah names.
+  static bool decorations = false;
+}
+
+/// Registers the mushaf fonts if their files are bundled.
 ///
-/// Loading at runtime (instead of declaring it in pubspec.yaml) keeps the build
-/// working before the font file is added; the Quran text then uses
-/// [QuranFontConfig.fallback]. Returns whether the font was loaded.
-Future<bool> loadQuranFont({AssetBundle? bundle}) async {
+/// Loading at runtime (instead of declaring them in pubspec.yaml) keeps the
+/// build working before the files are added (`py -m tafaseer_pipeline font`).
+Future<void> loadQuranFonts({AssetBundle? bundle}) async {
+  final assets = bundle ?? rootBundle;
+  final results = await Future.wait([
+    _load(assets, QuranFontConfig.family, QuranFontConfig.assetPath),
+    _load(assets, QuranFontConfig.commonFamily, QuranFontConfig.commonAssetPath),
+    _load(assets, QuranFontConfig.surahNamesFamily, QuranFontConfig.surahNamesAssetPath),
+  ]);
+  QuranFonts.hafs = results[0];
+  QuranFonts.decorations = results[1] && results[2];
+}
+
+Future<bool> _load(AssetBundle assets, String family, String path) async {
   try {
-    final data = (bundle ?? rootBundle).load(QuranFontConfig.assetPath);
-    final loader = FontLoader(QuranFontConfig.family)..addFont(data);
+    final loader = FontLoader(family)..addFont(assets.load(path));
     await loader.load();
-    AppLog.info('font', '${QuranFontConfig.family} loaded');
+    AppLog.info('font', '$family loaded');
     return true;
   } catch (e) {
-    AppLog.error('font', '${QuranFontConfig.assetPath} not bundled; using the system Arabic font', e);
+    AppLog.error('font', '$path not bundled; run `py -m tafaseer_pipeline font`', e);
     return false;
   }
 }

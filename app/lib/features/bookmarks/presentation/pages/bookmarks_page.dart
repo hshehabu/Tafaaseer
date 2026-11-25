@@ -51,9 +51,9 @@ class _BookmarkTile extends ConsumerWidget {
       onDismissed: (_) => ref.read(bookmarksProvider.notifier).toggle(bookmark.ref),
       background: ColoredBox(color: Theme.of(context).colorScheme.errorContainer),
       child: ListTile(
-        title: Text('$name ${toArabicDigits(bookmark.ref.ayah)}'),
+        title: Text(AppStrings.surahAyah(name, toArabicDigits(bookmark.ref.ayah))),
         subtitle: ayah == null ? null : QuranText(ayah.text, fontSize: 18, maxLines: 2),
-        onTap: () => Navigator.of(context).push(ReaderPage.route(bookmark.ref)),
+        onTap: () => Navigator.of(context).push(ReaderPage.route(bookmark.ref, highlight: true)),
       ),
     );
   }

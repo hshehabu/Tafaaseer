@@ -1,7 +1,7 @@
 name: tafaseer
 description: "Quran reader with offline tafsir on long-press: al-Muyassar, al-Sa'di, al-Baghawi, Ibn Kathir, al-Qurtubi, al-Tabari."
 publish_to: 'none'
-version: 1.0.0+1
+version: 2.0.0+2
 
 environment:
   sdk: ^3.12.2
@@ -14,7 +14,6 @@ dependencies:
   flutter_riverpod: ^3.5.0
   path: ^1.9.1
   path_provider: ^2.1.6
-  scrollable_positioned_list: ^0.3.8
   share_plus: ^13.3.1
   shared_preferences: ^2.5.6
   sqlite3: ^3.5.2
@@ -30,5 +29,24 @@ flutter:
   assets:
     # Built by ../pipeline (see README.md). Not committed: run the pipeline first.
     - assets/db/
-    # Optional: drop the KFGQPC Hafs font here as UthmanicHafs.ttf (loaded at runtime).
+    # The KFGQPC Hafs font, UthmanicHafs.ttf, downloaded by the pipeline (loaded at runtime).
     - assets/fonts/
+  fonts:
+    # OFL, see assets/fonts/ui/OFL.txt
+    - family: Tajawal
+      fonts:
+        - asset: assets/fonts/ui/Tajawal-Regular.ttf
+        - asset: assets/fonts/ui/Tajawal-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/ui/Tajawal-Bold.ttf
+          weight: 700
+    - family: NotoNaskhArabic
+      fonts:
+        - asset: assets/fonts/ui/NotoNaskhArabic-Regular.ttf
+        - asset: assets/fonts/ui/NotoNaskhArabic-Bold.ttf
+          weight: 700
+    - family: Amiri
+      fonts:
+        - asset: assets/fonts/ui/Amiri-Regular.ttf
+        - asset: assets/fonts/ui/Amiri-Bold.ttf
+          weight: 700

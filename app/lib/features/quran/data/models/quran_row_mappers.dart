@@ -3,9 +3,10 @@ import 'package:sqlite3/sqlite3.dart';
 import '../../../../core/domain/ayah_ref.dart';
 import '../../domain/entities/ayah.dart';
 import '../../domain/entities/hizb_start.dart';
+import '../../domain/entities/mushaf_page.dart';
 import '../../domain/entities/surah.dart';
 
-/// Row -> entity mapping. Column names match ../../../../../pipeline (schema v1).
+/// Row -> entity mapping. Column names match ../../../../../pipeline (schema v2).
 abstract final class QuranRowMappers {
   static Surah surah(Row r) => Surah(
     id: r['id'] as int,
@@ -33,4 +34,17 @@ abstract final class QuranRowMappers {
     ref: AyahRef(r['surah'] as int, r['ayah'] as int),
     surahName: r['name_ar'] as String,
   );
+
+  static MushafWord mushafWord(Row r) => MushafWord(
+    id: r['id'] as int,
+    ayahId: r['ayah_id'] as int,
+    isAyahEnd: r['is_end'] == 1,
+    text: r['text'] as String,
+  );
+
+  static MushafLineKind lineKind(String kind) => switch (kind) {
+    'surah' => MushafLineKind.surahTitle,
+    'basmala' => MushafLineKind.basmala,
+    _ => MushafLineKind.ayah,
+  };
 }

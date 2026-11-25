@@ -2,112 +2,212 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
+import '../../../../core/arabic/arabic_text.dart';
+import '../../../../core/config/app_config.dart';
 import '../../../../core/domain/ayah_ref.dart';
 import '../../../../core/l10n/app_strings.dart';
+import '../../../../core/theme/app_palette.dart';
 import '../../../settings/presentation/settings_providers.dart';
 import '../../../tafsir/presentation/tafsir_sheet.dart';
-import '../../domain/entities/ayah.dart';
-import '../../domain/entities/surah.dart';
+import '../../domain/entities/mushaf_page.dart';
 import '../providers/quran_providers.dart';
-import '../widgets/ayah_tile.dart';
-import '../widgets/surah_banner.dart';
+import '../widgets/jump_to_ayah_dialog.dart';
+import '../widgets/mushaf_page_view.dart';
 
-/// One surah as a verse list (D1). Opens at [initialAyah] when given (D4, D5).
+/// The Madani mushaf, page by page (v2). Long-press an ayah to open its tafsir.
 class ReaderPage extends ConsumerStatefulWidget {
-  const ReaderPage({super.key, required this.surahId, this.initialAyah});
+  const ReaderPage({super.key, required this.target, this.highlight = false});
 
-  final int surahId;
-  final int? initialAyah;
+  /// The ayah to open at; the reader shows the page it starts on.
+  final AyahRef target;
 
-  static Route<void> route(AyahRef ref) => MaterialPageRoute(
-    builder: (_) => ReaderPage(surahId: ref.surah, initialAyah: ref.ayah > 1 ? ref.ayah : null),
-  );
+  /// Briefly highlight [target] (after a jump or from a bookmark).
+  final bool highlight;
+
+  static Route<void> route(AyahRef target, {bool highlight = false}) =>
+      MaterialPageRoute(builder: (_) => ReaderPage(target: target, highlight: highlight));
 
   @override
   ConsumerState<ReaderPage> createState() => _ReaderPageState();
 }
 
 class _ReaderPageState extends ConsumerState<ReaderPage> {
-  final _positions = ItemPositionsListener.create();
-  Timer? _saveTimer;
+  late final PageController _controller;
+  late int _page;
   int? _highlighted;
-
-  // List layout: [banner, ayah 1 .. ayah n, footer]. Ayah k sits at index k.
-  static const _bannerItems = 1;
+  Timer? _saveTimer;
+  Timer? _highlightTimer;
+  Timer? _hintTimer;
+  bool _hintVisible = true;
 
   @override
   void initState() {
     super.initState();
-    _highlighted = widget.initialAyah;
-    if (_highlighted != null) {
-      Timer(const Duration(milliseconds: 2500), () {
-        if (mounted) setState(() => _highlighted = null);
-      });
-    }
-    _positions.itemPositions.addListener(_onScroll);
-  }
-
-  @override
-  void dispose() {
-    _positions.itemPositions.removeListener(_onScroll);
-    _saveTimer?.cancel();
-    super.dispose();
-  }
-
-  /// Saves the first fully visible ayah, at most every half second (D5).
-  void _onScroll() {
-    _saveTimer?.cancel();
-    _saveTimer = Timer(const Duration(milliseconds: 500), () {
-      final visible = _positions.itemPositions.value.where((p) => p.itemTrailingEdge > 0.1).map((p) => p.index);
-      if (visible.isEmpty) return;
-      final ayah = visible.reduce((a, b) => a < b ? a : b).clamp(1, 999);
-      ref.read(lastPositionProvider.notifier).update(AyahRef(widget.surahId, ayah));
+    final repository = ref.read(quranRepositoryProvider);
+    final location = repository.locate(widget.target);
+    _page = location?.page ?? 1;
+    _controller = PageController(initialPage: _page - 1);
+    // One font size for every page, measured on a few ordinary pages with the real font.
+    MushafFontScale.measure([for (final n in const [50, 150, 300, 450, 580]) repository.getPage(n)]);
+    if (widget.highlight && location != null) _flashHighlight(location.ayahId);
+    _scheduleSave(); // the page it opens on counts as read too
+    // The hint covers the bottom lines, so it only stays a few seconds.
+    _hintTimer = Timer(const Duration(seconds: 6), () {
+      if (mounted) setState(() => _hintVisible = false);
     });
   }
 
   @override
-  Widget build(BuildContext context) {
-    final surahs = ref.watch(surahsProvider).value;
-    final ayahsAsync = ref.watch(surahAyahsProvider(widget.surahId));
-    final surah = surahs?[widget.surahId - 1];
-
-    return Scaffold(
-      appBar: AppBar(title: Text(surah == null ? '' : AppStrings.surahPrefix(surah.nameAr))),
-      body: switch (ayahsAsync) {
-        AsyncData(:final value) when surah != null => _buildList(surah, value, surahs!),
-        AsyncError(:final error) => Center(child: Text('$error')),
-        _ => const SizedBox.shrink(),
-      },
-    );
+  void dispose() {
+    _saveTimer?.cancel();
+    _highlightTimer?.cancel();
+    _hintTimer?.cancel();
+    _controller.dispose();
+    super.dispose();
   }
 
-  Widget _buildList(Surah surah, List<Ayah> ayahs, List<Surah> surahs) {
-    final showHint = !ref.watch(settingsProvider.select((s) => s.tafsirHintSeen));
-    final initialIndex = (widget.initialAyah ?? 0).clamp(0, ayahs.length);
+  void _flashHighlight(int ayahId) {
+    _highlighted = ayahId;
+    _highlightTimer?.cancel();
+    _highlightTimer = Timer(const Duration(milliseconds: 2500), () {
+      if (mounted) setState(() => _highlighted = null);
+    });
+  }
 
-    return ScrollablePositionedList.builder(
-      itemCount: ayahs.length + _bannerItems + 1,
-      initialScrollIndex: initialIndex,
-      itemPositionsListener: _positions,
-      itemBuilder: (context, index) {
-        if (index == 0) {
-          return Column(
-            children: [
-              SurahBanner(surah: surah),
-              if (showHint) const _LongPressHint(),
-            ],
-          );
-        }
-        if (index > ayahs.length) return _SurahNavigation(surah: surah, surahs: surahs);
-        final ayah = ayahs[index - _bannerItems];
-        return AyahTile(
-          ayah: ayah,
-          highlighted: ayah.number == _highlighted,
-          onLongPress: () => showTafsirSheet(context, ayah: ayah),
-        );
+  void _onPageChanged(int index) {
+    setState(() => _page = index + 1);
+    _scheduleSave();
+  }
+
+  /// Saves the page's first ayah as the reading position (D5), once the reader settles.
+  void _scheduleSave() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 500), () {
+      if (mounted) ref.read(lastPositionProvider.notifier).update(ref.read(mushafPageProvider(_page)).firstAyah);
+    });
+  }
+
+  Future<void> _openTafsir(int ayahId) async {
+    _highlightTimer?.cancel();
+    // The reader found the long-press: the hint has done its job.
+    if (!ref.read(settingsProvider).tafsirHintSeen) {
+      ref.read(settingsProvider.notifier).update((s) => s.copyWith(tafsirHintSeen: true));
+    }
+    setState(() => _highlighted = ayahId);
+    final ayah = await ref.read(quranRepositoryProvider).getAyahById(ayahId);
+    if (ayah == null || !mounted) return;
+    await showTafsirSheet(
+      context,
+      ayah: ayah,
+      onAyahChanged: (next) {
+        if (!mounted) return;
+        setState(() => _highlighted = next.id);
+        // Follow the sheet to the next page when the new ayah isn't on this one.
+        if (!ref.read(mushafPageProvider(_page)).contains(next.id)) _controller.jumpToPage(next.page - 1);
       },
+    );
+    if (mounted) setState(() => _highlighted = null);
+  }
+
+  Future<void> _jump() async {
+    final target = await showJumpToAyahDialog(context);
+    if (target == null || !mounted) return;
+    final location = ref.read(quranRepositoryProvider).locate(target);
+    if (location == null) return;
+    setState(() => _flashHighlight(location.ayahId));
+    _controller.jumpToPage(location.page - 1);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final page = ref.watch(mushafPageProvider(_page));
+    final showHint = _hintVisible && !ref.watch(settingsProvider.select((s) => s.tafsirHintSeen));
+
+    return Scaffold(
+      appBar: AppBar(
+        titleSpacing: 0,
+        title: _PageTitle(page: page),
+        actions: [
+          IconButton(tooltip: AppStrings.jumpToAyah, icon: const Icon(Icons.search), onPressed: _jump),
+          const SizedBox(width: 4),
+        ],
+      ),
+      body: SafeArea(
+        top: false,
+        child: Stack(
+          children: [
+            // In a right-to-left app the next page sits to the left, as in a printed mushaf.
+            PageView.builder(
+              controller: _controller,
+              itemCount: MushafConfig.pageCount,
+              onPageChanged: _onPageChanged,
+              itemBuilder: (context, index) => _PageFrame(
+                pageNumber: index + 1,
+                child: MushafPageView(
+                  pageNumber: index + 1,
+                  highlightedAyahId: _highlighted,
+                  onAyahLongPress: _openTafsir,
+                ),
+              ),
+            ),
+            if (showHint)
+              const PositionedDirectional(start: 16, end: 16, bottom: 16, child: _LongPressHint()),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PageTitle extends ConsumerWidget {
+  const _PageTitle({required this.page});
+
+  final MushafPage page;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final surahs = ref.watch(surahsProvider).value;
+    final name = surahs == null ? '' : AppStrings.surahPrefix(surahs[page.surah - 1].nameAr);
+    final palette = AppPalette.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(name, style: Theme.of(context).appBarTheme.titleTextStyle?.copyWith(fontSize: 18)),
+        Text(
+          AppStrings.pageInfo(
+            page: toArabicDigits(page.number),
+            juz: toArabicDigits(page.juz),
+            hizb: toArabicDigits(page.hizb),
+          ),
+          style: TextStyle(fontSize: 12.5, color: palette.muted),
+        ),
+      ],
+    );
+  }
+}
+
+/// Page margins and the page number under the text.
+class _PageFrame extends StatelessWidget {
+  const _PageFrame({required this.pageNumber, required this.child});
+
+  final int pageNumber;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
+    return Padding(
+      // Narrow side margins, as in Tarteel: the width sets the mushaf font size.
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 2),
+      child: Column(
+        children: [
+          Expanded(child: child),
+          const SizedBox(height: 4),
+          Text(toArabicDigits(pageNumber), style: TextStyle(fontSize: 13, color: palette.muted)),
+        ],
+      ),
     );
   }
 }
@@ -117,50 +217,26 @@ class _LongPressHint extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final colors = Theme.of(context).colorScheme;
-    return Card(
-      margin: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-      color: colors.secondaryContainer,
-      child: ListTile(
-        leading: Icon(Icons.touch_app_outlined, color: colors.onSecondaryContainer),
-        title: Text(AppStrings.longPressHint, style: TextStyle(color: colors.onSecondaryContainer)),
-        trailing: TextButton(
-          onPressed: () => ref.read(settingsProvider.notifier).update((s) => s.copyWith(tafsirHintSeen: true)),
-          child: const Text(AppStrings.gotIt),
-        ),
+    final palette = AppPalette.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: palette.controlSurface,
+        border: Border.all(color: palette.border),
+        borderRadius: BorderRadius.circular(AppPalette.radius),
       ),
-    );
-  }
-}
-
-class _SurahNavigation extends StatelessWidget {
-  const _SurahNavigation({required this.surah, required this.surahs});
-
-  final Surah surah;
-  final List<Surah> surahs;
-
-  @override
-  Widget build(BuildContext context) {
-    void open(int id) => Navigator.of(context).pushReplacement(ReaderPage.route(AyahRef(id, 1)));
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 48),
-      child: Row(
-        children: [
-          if (surah.id > 1)
-            TextButton.icon(
-              onPressed: () => open(surah.id - 1),
-              icon: const Icon(Icons.chevron_left),
-              label: Text('${AppStrings.previousSurah}: ${surahs[surah.id - 2].nameAr}'),
+      child: Padding(
+        padding: const EdgeInsetsDirectional.fromSTEB(16, 8, 8, 8),
+        child: Row(
+          children: [
+            Icon(Icons.touch_app_outlined, color: palette.primary),
+            const SizedBox(width: 12),
+            Expanded(child: Text(AppStrings.longPressHint, style: TextStyle(color: palette.title))),
+            TextButton(
+              onPressed: () => ref.read(settingsProvider.notifier).update((s) => s.copyWith(tafsirHintSeen: true)),
+              child: const Text(AppStrings.gotIt),
             ),
-          const Spacer(),
-          if (surah.id < surahs.length)
-            TextButton.icon(
-              onPressed: () => open(surah.id + 1),
-              icon: const Icon(Icons.chevron_right),
-              iconAlignment: IconAlignment.end,
-              label: Text('${AppStrings.nextSurah}: ${surahs[surah.id].nameAr}'),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -3,6 +3,7 @@
 This pipeline builds `build/tafaseer.db`, the SQLite database that ships inside the app. The database holds:
 
 - the Quran in KFGQPC Hafs text, with surah, juz, hizb, quarter, page and sajda data;
+- the Madani mushaf page layout: 604 pages of 15 lines, every word placed on its line;
 - six tafsirs, cleaned for reading: al-Muyassar, al-Sa'di, al-Baghawi, Ibn Kathir, al-Qurtubi and al-Tabari.
 
 The pipeline needs only Python 3.10+ and its standard library.
@@ -13,6 +14,7 @@ The pipeline needs only Python 3.10+ and its standard library.
 cd pipeline
 py -m tafaseer_pipeline build                      # downloads missing sources, then builds (about 90 s once cached)
 py -m tafaseer_pipeline build --out ../app/assets/db/tafaseer.db   # build straight into the Flutter app
+py -m tafaseer_pipeline font                       # put the mushaf fonts into the Flutter app
 py -m tafaseer_pipeline show 2:255                 # print the cleaned tafsirs for one ayah
 py -m tafaseer_pipeline show 112:1 --tafsir tabari --hide-isnad
 py -m unittest discover -s tests -t .              # tests
@@ -26,7 +28,7 @@ Other options:
 - `build --allow-gaps` turns missing ayahs into warnings instead of errors.
 - `fetch` only downloads the sources.
 
-The first build downloads about 270 MB into `cache/`. Each build also writes `build/report.json` with per-tafsir statistics.
+The first build downloads about 270 MB into `cache/`. Each build also writes `build/report.json` with per-tafsir and mushaf statistics, wherever `--out` points.
 
 ## Sources
 
@@ -34,7 +36,9 @@ The first build downloads about 270 MB into `cache/`. Each build also writes `bu
 |---|---|---|
 | Tafsirs | [QUL](https://qul.tarteel.ai) (Tarteel) IDs 38, 24, 27, 22, 23, 37 | QUL downloads need a login. If you put the downloaded files in `input/qul/` as `<slug>.json` or `<slug>.sqlite` (for example `input/qul/tabari.json`), the pipeline uses them. Otherwise it falls back to [spa5k/tafsir_api](https://github.com/spa5k/tafsir_api), a public mirror of the same QUL data, pinned to one commit in `config.py`. |
 | Quran text | quran.com API v4, `qpc_hafs` and `uthmani_simple` | `qpc_hafs` is the text that matches the KFGQPC Hafs font. Each ayah ends with its number. |
-| Structure | [Tanzil](https://tanzil.net) `quran-data.xml`, CC BY 3.0 | Surah names, Meccan or Medinan, juz, hizb quarters, pages, sajdas. |
+| Structure | [Tanzil](https://tanzil.net) `quran-data.xml`, CC BY 3.0 | Surah names, Meccan or Medinan, juz, hizb quarters, pages, sajdas. Six names are corrected to the mushaf spelling (`NAME_FIXES` in `quran.py`), for example ابراهيم to إبراهيم. |
+| Mushaf layout | quran.com API v4, `verses/by_page` with each word's `line_number` | The Madani 15-line layout. See "Mushaf pages" below. |
+| Mushaf fonts | KFGQPC Uthmanic Script HAFS v18, and QUL's quran-common and surah-name (v4) fonts, from QUL's CDN | `py -m tafaseer_pipeline font` copies them into the app. Not committed. |
 
 The slugs are `muyassar`, `saadi`, `baghawi`, `ibn-kathir`, `qurtubi` and `tabari`.
 
@@ -80,7 +84,18 @@ The detector was checked by hand against three random samples of 30 hidden chain
 
 It hides 16% of al-Tabari's words, 6–7% of Ibn Kathir's and al-Baghawi's, and almost none of the others'. Rare mistakes are still possible, so the app always shows hidden chains as a tappable marker.
 
-## Database format (schema version 1)
+## Mushaf pages
+
+`mushaf.py` downloads the 604 pages (cached in `cache/mushaf/`) and builds the page layout the app draws with the Hafs font:
+
+- **Words and lines:** the API gives every word with its line number. Words of one line are consecutive, so a line is stored as a word-id range.
+- **Pages are counted, not trusted:** the API sometimes gives the first ayah of a page the previous page's number, while its line numbers are right. In mushaf order, a line number that goes down starts a new page. The result matches Tanzil's page boundaries for all 6,236 ayahs.
+- **Title and bismillah lines:** the API has no rows for them. Each run of empty lines before a surah's first word becomes a title line, then a bismillah line (none for surahs 1 and 9). Any other empty line fails the build.
+- **Checks:** the words of every ayah must join to its `text` (ignoring spaces, since a few words are split differently and the sajda mark ۩ is a word of its own), and there must be 114 titles and 112 bismillahs.
+
+The layout comes from the V2 Madani print. The app draws it with the single KFGQPC Hafs font, not the 604 per-page V2 fonts (about 100 MB), so line breaks match the print and word shapes are the digital Hafs font's.
+
+## Database format (schema version 2)
 
 `PRAGMA user_version` holds the schema version, and the `meta` table holds `schema_version`, `body_format_version`, `built_at` and the source credits.
 
@@ -91,6 +106,15 @@ It hides 16% of al-Tabari's words, 6–7% of Ibn Kathir's and al-Baghawi's, and 
 | `tafsirs` | 6 | `slug`, `name_ar`, `short_name_ar` (pill label), `author_ar`, `died_hijri`, `sort_order` (pill order), `is_default` (al-Muyassar) |
 | `tafsir_entries` | ~22,000 | `first_ayah_id`..`last_ayah_id`, `words`, `words_without_isnad`, `body` |
 | `tafsir_ayahs` | 37,416 | maps (`ayah_id`, `tafsir_id`) to `entry_id`; keyed by ayah first, so one lookup returns all six tafsirs |
+| `mushaf_lines` | 9,046 | (`page`, `line`) → `kind` (`ayah`, `surah`, `basmala`), `surah` for title and bismillah lines, `first_word`..`last_word` for ayah lines |
+| `mushaf_words` | 83,665 | `id` in mushaf order, `ayah_id`, `is_end` (the end-of-ayah number), `text` (KFGQPC Hafs) |
+
+Schema 2 added the two `mushaf_` tables. A page loads with two indexed queries, about 0.2 ms:
+
+```sql
+SELECT line, kind, surah, first_word, last_word FROM mushaf_lines WHERE page = ? ORDER BY line;
+SELECT id, ayah_id, is_end, text FROM mushaf_words WHERE id BETWEEN ? AND ?;  -- first and last word of the page
+```
 
 The bismillah is part of ayah 1:1 only. The app draws a bismillah header above every other surah except surah 9.
 
@@ -139,7 +163,7 @@ The reading-time badge is `words / 150` minutes, or `words_without_isnad / 150` 
 
 ## Size
 
-The database is 45 MB on disk: about 35 MB of compressed tafsir text, 2 MB of Quran text, and per-row SQLite overhead. The bodies are already compressed, so the APK only shrinks it to about 37 MB. If size becomes a problem, per-tafsir zlib dictionaries (Dart's `ZLibDecoder` supports `dictionary`) would shrink the short entries the most.
+The database is 47.7 MB on disk: about 35 MB of compressed tafsir text, 2 MB of Quran text, 2.5 MB of mushaf layout, and per-row SQLite overhead. The bodies are already compressed, so the APK only shrinks it to about 37 MB. If size becomes a problem, per-tafsir zlib dictionaries (Dart's `ZLibDecoder` supports `dictionary`) would shrink the short entries the most.
 
 ## Licences and credits
 
@@ -147,6 +171,7 @@ The credits page (B7) must name:
 
 - QUL / Tarteel for the tafsir data;
 - the King Fahd Complex for al-Muyassar and the Hafs text and font;
+- quran.com for the mushaf page layout;
 - Tanzil (CC BY 3.0) for the Quran metadata.
 
 The five classical tafsirs are public domain. Al-Muyassar and the KFGQPC font are King Fahd Complex works: free use with credit is common practice, but ask for permission before charging money. This pipeline's code can carry the repository's code licence. The data it downloads keeps its own terms.

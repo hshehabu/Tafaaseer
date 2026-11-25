@@ -15,9 +15,6 @@ class QuranLocalDataSource {
     'SELECT id, name_ar, name_translit, revelation, ayah_count, first_ayah_id FROM surahs ORDER BY id',
   );
 
-  ResultSet ayahsOfSurah(int surahId) =>
-      _db.select('SELECT $_ayahColumns FROM ayahs WHERE surah = ? ORDER BY ayah', [surahId]);
-
   Row? ayah(int surah, int ayah) =>
       _db.select('SELECT $_ayahColumns FROM ayahs WHERE surah = ? AND ayah = ?', [surah, ayah]).firstOrNull;
 
@@ -30,4 +27,16 @@ class QuranLocalDataSource {
     WHERE a.id IN (SELECT min(id) FROM ayahs GROUP BY hizb)
     ORDER BY a.hizb
   ''');
+
+  /// The lines of one mushaf page, top to bottom.
+  ResultSet mushafLines(int page) => _db.select(
+    'SELECT line, kind, surah, first_word, last_word FROM mushaf_lines WHERE page = ? ORDER BY line',
+    [page],
+  );
+
+  /// Words by id range (one page's words are consecutive).
+  ResultSet mushafWords(int firstId, int lastId) => _db.select(
+    'SELECT id, ayah_id, is_end, text FROM mushaf_words WHERE id BETWEEN ? AND ? ORDER BY id',
+    [firstId, lastId],
+  );
 }

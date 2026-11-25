@@ -8,7 +8,7 @@ import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import BODY_FORMAT_VERSION, SCHEMA_VERSION, config, loaders, quran, sources
+from . import BODY_FORMAT_VERSION, SCHEMA_VERSION, config, loaders, mushaf, quran, sources
 from .clean import clean_entry
 
 SCHEMA = """
@@ -64,6 +64,21 @@ CREATE TABLE tafsir_ayahs (
   entry_id  INTEGER NOT NULL REFERENCES tafsir_entries(id),
   PRIMARY KEY (ayah_id, tafsir_id)              -- the long-press reads all tafsirs of one ayah
 ) WITHOUT ROWID;
+CREATE TABLE mushaf_lines (                    -- Madani mushaf, 604 pages x 15 lines (pages 1-2 shorter)
+  page       INTEGER NOT NULL,
+  line       INTEGER NOT NULL,
+  kind       TEXT NOT NULL CHECK (kind IN ('ayah', 'surah', 'basmala')),
+  surah      INTEGER NOT NULL,                 -- for 'surah' and 'basmala' lines, else 0
+  first_word INTEGER NOT NULL,                 -- mushaf_words.id range for 'ayah' lines, else 0
+  last_word  INTEGER NOT NULL,
+  PRIMARY KEY (page, line)
+) WITHOUT ROWID;
+CREATE TABLE mushaf_words (
+  id      INTEGER PRIMARY KEY,                 -- 1.. in mushaf order
+  ayah_id INTEGER NOT NULL,
+  is_end  INTEGER NOT NULL,                    -- 1 for the end-of-ayah number
+  text    TEXT NOT NULL                        -- KFGQPC Hafs text of the word
+);
 """
 
 
@@ -111,6 +126,16 @@ def build(out: Path, only: list[str] | None = None, allow_gaps: bool = False) ->
 
     report: dict = {"tafsirs": {}}
     errors: list[str] = []
+
+    print("Mushaf page layout ...", file=sys.stderr)
+    words = mushaf.load_words(mushaf.page_files(), {f"{a.surah}:{a.ayah}": a.id for a in ayahs})
+    lines = mushaf.build_lines(words, {s.id: s.first_ayah_id for s in surahs})
+    errors += mushaf.check(words, lines, {a.id: a.text for a in ayahs})
+    con.executemany("INSERT INTO mushaf_words VALUES (?,?,?,?)", [(w.id, w.ayah_id, int(w.is_end), w.text) for w in words])
+    con.executemany("INSERT INTO mushaf_lines VALUES (?,?,?,?,?,?)",
+                    [(l.page, l.line, l.kind, l.surah, l.first_word, l.last_word) for l in lines])
+    report["mushaf"] = {"pages": mushaf.PAGES, "lines": len(lines), "words": len(words)}
+    print(f"  {mushaf.PAGES} pages, {len(lines):,} lines, {len(words):,} words", file=sys.stderr)
     for order, tafsir in enumerate(tafsirs, start=1):
         print(f"{tafsir.slug} ...", file=sys.stderr)
         tafsir_id = config.TAFSIRS.index(tafsir) + 1
@@ -178,6 +203,7 @@ def build(out: Path, only: list[str] | None = None, allow_gaps: bool = False) ->
         "built_at": built_at,
         "quran_text_source": "KFGQPC Hafs text via quran.com API v4 (qpc_hafs)",
         "quran_metadata_source": "Tanzil.net quran-data.xml (CC BY 3.0)",
+        "mushaf_layout_source": "Madani 15-line layout via quran.com API v4 (word line numbers)",
         "tafsir_source": "Quranic Universal Library (qul.tarteel.ai) by Tarteel",
     }
     con.executemany("INSERT INTO meta VALUES (?, ?)", [(k, str(v)) for k, v in meta.items()])
@@ -196,9 +222,12 @@ def build(out: Path, only: list[str] | None = None, allow_gaps: bool = False) ->
     tmp.replace(out)
     report.update(meta)
     report["db_bytes"] = out.stat().st_size
-    (out.parent / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Always next to the default output, so a build into the app never bundles the report.
+    report_path = config.DEFAULT_OUT.parent / "report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\nWrote {out} ({out.stat().st_size / 1e6:.1f} MB) in {time.time() - started:.0f}s", file=sys.stderr)
-    print(f"Report: {out.parent / 'report.json'}", file=sys.stderr)
+    print(f"Report: {report_path}", file=sys.stderr)
     return 0
 
 

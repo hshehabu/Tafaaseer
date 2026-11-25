@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tafaseer/app/theme/app_theme.dart';
 import 'package:tafaseer/features/tafsir/domain/entities/tafsir_document.dart';
 import 'package:tafaseer/features/tafsir/presentation/widgets/tafsir_paragraph_view.dart';
 
@@ -11,6 +12,7 @@ void main() {
 
   Future<void> pump(WidgetTester tester, {required bool hideIsnad, bool showTashkeel = true}) => tester.pumpWidget(
     MaterialApp(
+      theme: AppTheme.light(),
       home: Directionality(
         textDirection: TextDirection.rtl,
         child: Material(

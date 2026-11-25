@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/domain/ayah_ref.dart';
 import '../../../../core/l10n/app_strings.dart';
 import '../providers/quran_providers.dart';
 
-/// Asks for "surah:ayah" and returns a reference that exists, or null (D4).
+/// Asks for a surah number and an ayah number and returns a reference that
+/// exists, or null (D4). Two number fields, because many phone number pads
+/// have no ":" key.
 Future<AyahRef?> showJumpToAyahDialog(BuildContext context) =>
     showDialog<AyahRef>(context: context, builder: (_) => const _JumpToAyahDialog());
 
@@ -17,18 +20,22 @@ class _JumpToAyahDialog extends ConsumerStatefulWidget {
 }
 
 class _JumpToAyahDialogState extends ConsumerState<_JumpToAyahDialog> {
-  final _controller = TextEditingController();
+  final _surah = TextEditingController();
+  final _ayah = TextEditingController(text: '1');
+  final _ayahFocus = FocusNode();
   String? _error;
 
   @override
   void dispose() {
-    _controller.dispose();
+    _surah.dispose();
+    _ayah.dispose();
+    _ayahFocus.dispose();
     super.dispose();
   }
 
   void _submit() {
     final surahs = ref.read(surahsProvider).value ?? const [];
-    final target = ref.read(resolveAyahRefProvider)(_controller.text, surahs);
+    final target = ref.read(resolveAyahRefProvider)('${_surah.text.trim()}:${_ayah.text.trim()}', surahs);
     if (target == null) {
       setState(() => _error = AppStrings.jumpInvalid);
       return;
@@ -38,16 +45,60 @@ class _JumpToAyahDialogState extends ConsumerState<_JumpToAyahDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final surahs = ref.watch(surahsProvider).value ?? const [];
+    final surahNumber = int.tryParse(_surah.text.trim());
+    final surahName = surahNumber != null && surahNumber >= 1 && surahNumber <= surahs.length
+        ? surahs[surahNumber - 1].nameAr
+        : null;
+
+    InputDecoration decoration(String label) => InputDecoration(labelText: label, counterText: '');
+
     return AlertDialog(
       title: const Text(AppStrings.jumpToAyah),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        keyboardType: TextInputType.datetime, // digits plus ":" on most keyboards
-        textDirection: TextDirection.ltr,
-        textAlign: TextAlign.center,
-        decoration: InputDecoration(hintText: AppStrings.jumpHint, errorText: _error, errorMaxLines: 2),
-        onSubmitted: (_) => _submit(),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _surah,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 3,
+                  textAlign: TextAlign.center,
+                  textInputAction: TextInputAction.next,
+                  decoration: decoration(AppStrings.jumpSurah),
+                  onChanged: (_) => setState(() => _error = null),
+                  onSubmitted: (_) => _ayahFocus.requestFocus(),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: _ayah,
+                  focusNode: _ayahFocus,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 3,
+                  textAlign: TextAlign.center,
+                  decoration: decoration(AppStrings.jumpAyah),
+                  onChanged: (_) => setState(() => _error = null),
+                  onSubmitted: (_) => _submit(),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Confirms the surah as the reader types its number.
+          Text(
+            _error ?? (surahName == null ? AppStrings.jumpHint : AppStrings.surahPrefix(surahName)),
+            style: TextStyle(
+              color: _error == null ? Theme.of(context).colorScheme.onSurfaceVariant : Theme.of(context).colorScheme.error,
+            ),
+          ),
+        ],
       ),
       actions: [
         TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text(AppStrings.cancel)),

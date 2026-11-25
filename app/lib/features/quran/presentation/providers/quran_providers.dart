@@ -8,6 +8,7 @@ import '../../data/repositories/quran_repository_impl.dart';
 import '../../data/repositories/reading_position_repository_impl.dart';
 import '../../domain/entities/ayah.dart';
 import '../../domain/entities/hizb_start.dart';
+import '../../domain/entities/mushaf_page.dart';
 import '../../domain/entities/surah.dart';
 import '../../domain/repositories/quran_repository.dart';
 import '../../domain/repositories/reading_position_repository.dart';
@@ -34,9 +35,10 @@ final hizbStartsProvider = FutureProvider<List<HizbStart>>(
 
 final bismillahProvider = FutureProvider<String>((ref) => ref.watch(quranRepositoryProvider).getBismillah());
 
-/// Ayahs of one surah. Kept while the reader is open, dropped after.
-final surahAyahsProvider = FutureProvider.autoDispose.family<List<Ayah>, int>(
-  (ref, surahId) => ref.watch(quranRepositoryProvider).getAyahs(surahId),
+/// One mushaf page (1..604). Synchronous: the repository keeps the nearby
+/// pages cached, and a swipe must never show an empty frame.
+final mushafPageProvider = Provider.autoDispose.family<MushafPage, int>(
+  (ref, page) => ref.watch(quranRepositoryProvider).getPage(page),
 );
 
 /// One ayah by reference (bookmarks list).

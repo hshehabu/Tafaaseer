@@ -11,7 +11,7 @@ import '../../core/logging/app_log.dart';
 /// the content database (copied on first launch) and the Quran font.
 final appStartupProvider = FutureProvider<void>((ref) async {
   final watch = Stopwatch()..start();
-  await Future.wait([ref.watch(contentDatabaseProvider.future), loadQuranFont()]);
+  await Future.wait([ref.watch(contentDatabaseProvider.future), loadQuranFonts()]);
   AppLog.info('startup', 'ready in ${watch.elapsedMilliseconds} ms');
 });
 

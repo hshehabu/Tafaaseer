@@ -1,0 +1,9 @@
+The fonts in this folder are licensed under the SIL Open Font License, Version 1.1
+(https://openfontlicense.org):
+
+- Tajawal: Copyright 2018 The Tajawal Project Authors (https://github.com/googlefonts/tajawal)
+- Amiri: Copyright 2010-2022 The Amiri Project Authors (https://github.com/aliftype/amiri)
+- Noto Naskh Arabic: Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic)
+
+They are used unmodified for the app's interface (Tajawal), tafsir text (Noto Naskh Arabic)
+and tafsir headings (Amiri).

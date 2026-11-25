@@ -38,13 +38,6 @@ class SettingsPage extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
           _SliderTile(
-            label: AppStrings.quranFontSize,
-            value: settings.quranFontSize,
-            range: ReaderSettings.quranFontRange,
-            display: toArabicDigits(settings.quranFontSize.round()),
-            onChanged: (v) => controller.update((c) => c.copyWith(quranFontSize: v)),
-          ),
-          _SliderTile(
             label: AppStrings.tafsirFontSize,
             value: settings.tafsirFontSize,
             range: ReaderSettings.tafsirFontRange,
@@ -55,7 +48,7 @@ class SettingsPage extends ConsumerWidget {
             label: AppStrings.tafsirLineHeight,
             value: settings.tafsirLineHeight,
             range: ReaderSettings.lineHeightRange,
-            display: settings.tafsirLineHeight.toStringAsFixed(1),
+            display: toArabicDecimal(settings.tafsirLineHeight, 1),
             onChanged: (v) => controller.update((c) => c.copyWith(tafsirLineHeight: v)),
           ),
           SwitchListTile(

@@ -7,7 +7,7 @@ import sys
 import zlib
 from pathlib import Path
 
-from . import config, sources
+from . import config, mushaf, sources
 from .build import build
 
 _MARK = {1: ("﴿", "﴾"), 2: ("⟦سند: ", "⟧"), 3: ("[حاشية: ", "]"), 4: ("", "")}
@@ -15,12 +15,24 @@ _MARK = {1: ("﴿", "﴾"), 2: ("⟦سند: ", "⟧"), 3: ("[حاشية: ", "]")
 
 def _fetch(_args) -> int:
     sources.quran_files()
+    mushaf.page_files()
     for tafsir in config.TAFSIRS:
         if sources.qul_file(tafsir):
             print(f"{tafsir.slug}: using {sources.qul_file(tafsir)}", file=sys.stderr)
         else:
             sources.mirror_files(tafsir)
     print("All sources are cached.", file=sys.stderr)
+    return 0
+
+
+def _font(args) -> int:
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for name, url in config.MUSHAF_FONTS.items():
+        font = sources._download(url, config.CACHE_DIR / "fonts" / url.rsplit("/", 1)[-1])
+        out = out_dir / name
+        out.write_bytes(font.read_bytes())
+        print(f"Wrote {out} ({out.stat().st_size / 1e3:.0f} KB)", file=sys.stderr)
     return 0
 
 
@@ -83,6 +95,10 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--only", help="comma-separated tafsir slugs, e.g. muyassar,saadi")
     b.add_argument("--allow-gaps", action="store_true", help="warn instead of failing when ayahs lack text")
     b.set_defaults(func=lambda a: build(Path(a.out), a.only.split(",") if a.only else None, a.allow_gaps))
+
+    f = sub.add_parser("font", help="download the mushaf fonts into the Flutter app")
+    f.add_argument("--out", default=str(config.APP_FONTS_DIR), help="folder for the font files")
+    f.set_defaults(func=_font)
 
     s = sub.add_parser("show", help="print the cleaned tafsir for one ayah from a built database")
     s.add_argument("ayah", help="surah:ayah, e.g. 2:255")

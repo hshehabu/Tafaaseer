@@ -24,7 +24,7 @@ class HomePage extends StatelessWidget {
               icon: const Icon(Icons.search),
               onPressed: () async {
                 final target = await showJumpToAyahDialog(context);
-                if (target != null && context.mounted) await Navigator.of(context).push(ReaderPage.route(target));
+                if (target != null && context.mounted) await Navigator.of(context).push(ReaderPage.route(target, highlight: true));
               },
             ),
             IconButton(

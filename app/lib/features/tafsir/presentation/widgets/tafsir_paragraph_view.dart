@@ -2,7 +2,9 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/arabic/arabic_text.dart';
+import '../../../../core/config/app_config.dart';
 import '../../../../core/l10n/app_strings.dart';
+import '../../../../core/theme/app_palette.dart';
 import '../../domain/entities/tafsir_document.dart';
 
 /// Reading options that change how a paragraph is drawn.
@@ -43,7 +45,12 @@ class _TafsirParagraphViewState extends State<TafsirParagraphView> {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final o = widget.options;
-    final base = theme.textTheme.bodyLarge!.copyWith(fontSize: o.fontSize, height: o.lineHeight);
+    final base = theme.textTheme.bodyLarge!.copyWith(
+      fontFamily: UiFonts.reading,
+      fontSize: o.fontSize,
+      height: o.lineHeight,
+      color: AppPalette.of(context).body,
+    );
     final p = widget.paragraph;
 
     return switch (p.kind) {
@@ -55,7 +62,12 @@ class _TafsirParagraphViewState extends State<TafsirParagraphView> {
         padding: const EdgeInsets.only(top: 16, bottom: 4),
         child: Text.rich(
           TextSpan(children: _spans(context, base)),
-          style: base.copyWith(fontWeight: FontWeight.w700, fontSize: o.fontSize * 1.05, color: colors.primary),
+          style: base.copyWith(
+            fontFamily: UiFonts.classical,
+            fontWeight: FontWeight.w700,
+            fontSize: o.fontSize * 1.1,
+            color: colors.primary,
+          ),
         ),
       ),
       ParagraphKind.poem => Padding(
@@ -71,8 +83,9 @@ class _TafsirParagraphViewState extends State<TafsirParagraphView> {
         margin: const EdgeInsets.symmetric(vertical: 8),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: colors.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(12),
+          color: colors.surfaceContainerHigh,
+          border: Border.all(color: colors.outline),
+          borderRadius: BorderRadius.circular(AppPalette.radius),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -103,9 +116,20 @@ class _TafsirParagraphViewState extends State<TafsirParagraphView> {
           spans.add(TextSpan(text: _display(s.text)));
         case SpanKind.quran:
           // Quran quotes keep their diacritics and are set apart by colour and ﴿ ﴾.
+          // The brackets come from the KFGQPC Hafs font, which draws them as in
+          // the mushaf (Noto Naskh draws them like "·{").
+          const bracket = TextStyle(
+            fontFamily: QuranFontConfig.family,
+            fontFamilyFallback: QuranFontConfig.fallback,
+            fontWeight: FontWeight.w400,
+          );
           spans.add(TextSpan(
-            text: '﴿${s.text}﴾',
             style: TextStyle(color: colors.primary, fontWeight: FontWeight.w600),
+            children: [
+              const TextSpan(text: '﴿', style: bracket),
+              TextSpan(text: s.text),
+              const TextSpan(text: '﴾', style: bracket),
+            ],
           ));
         case SpanKind.reference:
           spans.add(TextSpan(
@@ -149,13 +173,14 @@ class _InlineChip extends StatelessWidget {
       label: label,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppPalette.radius),
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 2),
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
           decoration: BoxDecoration(
             color: colors.secondaryContainer,
-            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: colors.outline),
+            borderRadius: BorderRadius.circular(AppPalette.radius),
           ),
           child: Text(
             '$label …',

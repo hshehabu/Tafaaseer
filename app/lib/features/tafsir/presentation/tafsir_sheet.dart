@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../../core/arabic/arabic_text.dart';
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/theme/app_palette.dart';
 import '../../bookmarks/presentation/providers/bookmarks_providers.dart';
 import '../../quran/domain/entities/ayah.dart';
 import '../../quran/presentation/providers/quran_providers.dart';
@@ -15,12 +16,16 @@ import 'providers/tafsir_providers.dart';
 import 'widgets/tafsir_paragraph_view.dart';
 
 /// Opens the tafsir sheet for [ayah]. This is the tafsir feature's public entry
-/// point; the reader calls it on long-press (E1, E2).
-Future<void> showTafsirSheet(BuildContext context, {required Ayah ayah}) {
+/// point; the reader calls it on long-press (E1, E2). [onAyahChanged] fires when
+/// the reader steps to the next or previous ayah inside the sheet, so the
+/// mushaf page can move its highlight.
+Future<void> showTafsirSheet(BuildContext context, {required Ayah ayah, ValueChanged<Ayah>? onAyahChanged}) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
+    // Light enough that the highlighted ayah stays visible above the sheet.
+    barrierColor: Colors.black.withValues(alpha: 0.12),
     showDragHandle: true,
     builder: (_) => DraggableScrollableSheet(
       expand: false,
@@ -29,16 +34,18 @@ Future<void> showTafsirSheet(BuildContext context, {required Ayah ayah}) {
       maxChildSize: 1,
       snap: true,
       snapSizes: const [0.55],
-      builder: (context, scrollController) => TafsirSheet(initialAyah: ayah, scrollController: scrollController),
+      builder: (context, scrollController) =>
+          TafsirSheet(initialAyah: ayah, scrollController: scrollController, onAyahChanged: onAyahChanged),
     ),
   );
 }
 
 class TafsirSheet extends ConsumerStatefulWidget {
-  const TafsirSheet({super.key, required this.initialAyah, required this.scrollController});
+  const TafsirSheet({super.key, required this.initialAyah, required this.scrollController, this.onAyahChanged});
 
   final Ayah initialAyah;
   final ScrollController scrollController;
+  final ValueChanged<Ayah>? onAyahChanged;
 
   @override
   ConsumerState<TafsirSheet> createState() => _TafsirSheetState();
@@ -74,6 +81,7 @@ class _TafsirSheetState extends ConsumerState<TafsirSheet> {
     if (next == null || !mounted) return;
     _rememberScroll();
     setState(() => _ayah = next);
+    widget.onAyahChanged?.call(next);
   }
 
   /// After a different entry appears, restore where the reader was in it (E7).
@@ -215,7 +223,7 @@ class _SheetHeader extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${AppStrings.surahPrefix(surahName)} · ${toArabicDigits(ayah.number)}',
+                  AppStrings.ayahShort(surahName, toArabicDigits(ayah.number)),
                   style: theme.textTheme.titleMedium,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -292,6 +300,7 @@ class _SourcePills extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     return SizedBox(
       height: 52,
       child: ListView.separated(
@@ -302,10 +311,23 @@ class _SourcePills extends StatelessWidget {
         itemBuilder: (context, i) {
           final e = entries[i];
           final minutes = toArabicDigits(e.readingMinutes(hideIsnad: hideIsnad));
+          final isSelected = e.id == selected.id;
           return ChoiceChip(
-            label: Text('${e.source.shortName} · ${AppStrings.minutes(minutes)}'),
-            selected: e.id == selected.id,
+            label: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(e.source.shortName),
+                const SizedBox(width: 8),
+                // The reading time is a separate, quieter label: "الميسر ١ د", never "الميسر · ١ د".
+                Text(
+                  AppStrings.minutes(minutes),
+                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: palette.muted),
+                ),
+              ],
+            ),
+            selected: isSelected,
             showCheckmark: false,
+            side: BorderSide(color: isSelected ? palette.secondaryBorder : palette.border),
             onSelected: (_) => onSelected(e.source.id),
           );
         },

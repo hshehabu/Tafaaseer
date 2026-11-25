@@ -8,6 +8,7 @@ import 'package:tafaseer/core/database/content_database.dart';
 import 'package:tafaseer/core/domain/ayah_ref.dart';
 import 'package:tafaseer/features/quran/data/datasources/quran_local_data_source.dart';
 import 'package:tafaseer/features/quran/data/repositories/quran_repository_impl.dart';
+import 'package:tafaseer/features/quran/domain/entities/mushaf_page.dart';
 import 'package:tafaseer/features/tafsir/data/datasources/tafsir_local_data_source.dart';
 import 'package:tafaseer/features/tafsir/data/repositories/tafsir_repository_impl.dart';
 import 'package:tafaseer/features/tafsir/domain/usecases/get_ayah_tafsirs.dart';
@@ -26,7 +27,31 @@ void main() {
 
   test('opens and validates', () {
     expect(db.schemaVersion, ContentDbConfig.schemaVersion);
-    expect(db.meta()['schema_version'], '1');
+    expect(db.meta()['schema_version'], '${ContentDbConfig.schemaVersion}');
+  }, skip: skip);
+
+  test('all 604 mushaf pages load, with every ayah on them in order', () {
+    final quran = QuranRepositoryImpl(QuranLocalDataSource(db));
+    final watch = Stopwatch()..start();
+    var expectedAyah = 1;
+    var titles = 0;
+    for (var n = 1; n <= MushafConfig.pageCount; n++) {
+      final page = quran.getPage(n);
+      expect(page.lines.length, n <= 2 ? lessThan(MushafConfig.linesPerPage) : MushafConfig.linesPerPage);
+      for (final line in page.lines) {
+        if (line.kind == MushafLineKind.surahTitle) titles++;
+        for (final word in line.words) {
+          // Ayahs never skip; an ayah may continue from the previous line or page.
+          expect(word.ayahId, anyOf(expectedAyah, expectedAyah + 1), reason: 'page $n');
+          expectedAyah = word.ayahId;
+        }
+      }
+    }
+    expect(expectedAyah, 6236);
+    expect(titles, 114);
+    // ignore: avoid_print
+    print('all pages loaded in ${watch.elapsedMilliseconds} ms (host machine)');
+    expect(quran.locate(const AyahRef(2, 255))?.page, 42);
   }, skip: skip);
 
   test('every tafsir answers for sample ayahs, al-Muyassar first, all bodies decode', () async {

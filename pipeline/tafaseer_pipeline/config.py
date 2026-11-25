@@ -20,6 +20,16 @@ QURAN_TEXT_URL = "https://api.quran.com/api/v4/quran/verses/qpc_hafs"
 QURAN_SIMPLE_URL = "https://api.quran.com/api/v4/quran/verses/uthmani_simple"
 # Surah names, revelation type, juz / hizb-quarter / page / sajda boundaries (CC BY, Tanzil.net).
 TANZIL_METADATA_URL = "https://tanzil.net/res/text/metadata/quran-data.xml"
+# Mushaf fonts, served by QUL's CDN, copied into the app by `font` (file name in the app -> URL):
+# - the KFGQPC Uthmanic Script HAFS font (v18), which the qpc_hafs text is written for;
+# - QUL's quran-common font: the ornate surah header frame and the calligraphic bismillah;
+# - QUL's surah-name font (v4): each surah's name in calligraphy.
+APP_FONTS_DIR = PIPELINE_DIR.parent / "app" / "assets" / "fonts"
+MUSHAF_FONTS = {
+    "UthmanicHafs.ttf": "https://static-cdn.tarteel.ai/qul/fonts/UthmanicHafs1Ver18.ttf",
+    "QuranCommon.ttf": "https://static-cdn.tarteel.ai/qul/fonts/common/quran-common.ttf",
+    "SurahNames.ttf": "https://static-cdn.tarteel.ai/qul/fonts/surah-names/v4/surah-name-v4.ttf",
+}
 
 USER_AGENT = "tafaseer-pipeline/0.1"
 

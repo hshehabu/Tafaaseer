@@ -6,7 +6,6 @@ enum ThemePreference { system, light, dark, sepia }
 class ReaderSettings {
   const ReaderSettings({
     this.theme = ThemePreference.system,
-    this.quranFontSize = 26,
     this.tafsirFontSize = 18,
     this.tafsirLineHeight = 1.9,
     this.showTashkeel = true,
@@ -14,12 +13,10 @@ class ReaderSettings {
     this.tafsirHintSeen = false,
   });
 
-  static const quranFontRange = (min: 18.0, max: 44.0);
   static const tafsirFontRange = (min: 14.0, max: 30.0);
   static const lineHeightRange = (min: 1.4, max: 2.6);
 
   final ThemePreference theme;
-  final double quranFontSize;
   final double tafsirFontSize;
   final double tafsirLineHeight;
 
@@ -34,7 +31,6 @@ class ReaderSettings {
 
   ReaderSettings copyWith({
     ThemePreference? theme,
-    double? quranFontSize,
     double? tafsirFontSize,
     double? tafsirLineHeight,
     bool? showTashkeel,
@@ -42,7 +38,6 @@ class ReaderSettings {
     bool? tafsirHintSeen,
   }) => ReaderSettings(
     theme: theme ?? this.theme,
-    quranFontSize: quranFontSize ?? this.quranFontSize,
     tafsirFontSize: tafsirFontSize ?? this.tafsirFontSize,
     tafsirLineHeight: tafsirLineHeight ?? this.tafsirLineHeight,
     showTashkeel: showTashkeel ?? this.showTashkeel,
@@ -54,7 +49,6 @@ class ReaderSettings {
   bool operator ==(Object other) =>
       other is ReaderSettings &&
       other.theme == theme &&
-      other.quranFontSize == quranFontSize &&
       other.tafsirFontSize == tafsirFontSize &&
       other.tafsirLineHeight == tafsirLineHeight &&
       other.showTashkeel == showTashkeel &&
@@ -64,7 +58,6 @@ class ReaderSettings {
   @override
   int get hashCode => Object.hash(
     theme,
-    quranFontSize,
     tafsirFontSize,
     tafsirLineHeight,
     showTashkeel,

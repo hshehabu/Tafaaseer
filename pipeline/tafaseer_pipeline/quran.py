@@ -33,6 +33,17 @@ class Ayah:
     sajda: bool
 
 
+# Tanzil's names drop or misplace a hamza in a few places. These are the mushaf spellings.
+NAME_FIXES = {
+    14: "إبراهيم",
+    34: "سبأ",
+    76: "الإنسان",
+    78: "النبأ",
+    82: "الانفطار",
+    84: "الانشقاق",
+}
+
+
 def _starts(root: ET.Element, group: str, item: str, first_ayah: dict[int, int]) -> list[int]:
     """Ayah ids where each juz / quarter / page begins, in order."""
     node = root.find(group)
@@ -51,7 +62,7 @@ def load(files: dict[str, Path]) -> tuple[list[Surah], list[Ayah]]:
     for e in root.find("suras").findall("sura"):
         surahs.append(Surah(
             id=int(e.get("index")),
-            name_ar=e.get("name"),
+            name_ar=NAME_FIXES.get(int(e.get("index")), e.get("name")),
             name_translit=e.get("tname"),
             revelation="meccan" if e.get("type") == "Meccan" else "medinan",
             ayah_count=int(e.get("ayas")),

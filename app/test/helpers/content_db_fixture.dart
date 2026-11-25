@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:tafaseer/core/database/content_database.dart';
 
-/// Same tables as ../../../pipeline/tafaseer_pipeline/build.py (schema v1).
+/// Same tables as ../../../pipeline/tafaseer_pipeline/build.py (schema v2).
 const contentSchemaSql = '''
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE surahs (id INTEGER PRIMARY KEY, name_ar TEXT NOT NULL, name_translit TEXT NOT NULL,
@@ -20,6 +20,9 @@ CREATE TABLE tafsir_entries (id INTEGER PRIMARY KEY, tafsir_id INTEGER NOT NULL,
   last_ayah_id INTEGER NOT NULL, words INTEGER NOT NULL, words_without_isnad INTEGER NOT NULL, body BLOB NOT NULL);
 CREATE TABLE tafsir_ayahs (ayah_id INTEGER NOT NULL, tafsir_id INTEGER NOT NULL, entry_id INTEGER NOT NULL,
   PRIMARY KEY (ayah_id, tafsir_id)) WITHOUT ROWID;
+CREATE TABLE mushaf_lines (page INTEGER NOT NULL, line INTEGER NOT NULL, kind TEXT NOT NULL, surah INTEGER NOT NULL,
+  first_word INTEGER NOT NULL, last_word INTEGER NOT NULL, PRIMARY KEY (page, line)) WITHOUT ROWID;
+CREATE TABLE mushaf_words (id INTEGER PRIMARY KEY, ayah_id INTEGER NOT NULL, is_end INTEGER NOT NULL, text TEXT NOT NULL);
 ''';
 
 /// zlib(JSON), exactly like the pipeline writes tafsir_entries.body.
@@ -28,11 +31,14 @@ Uint8List encodeBody(List<Map<String, Object?>> paragraphs) =>
 
 /// A small but complete content database:
 /// - surah 1 (7 ayahs), surah 2 (9 ayahs), surah 3 (6220 ayahs): 6236 in total, so it passes validation;
+/// - a 3-page mushaf: surah 1 on page 1, surah 2 on page 2 (one ayah per line,
+///   after its title and bismillah lines), surah 3 from page 3; each ayah is one
+///   word plus its end-of-ayah number;
 /// - two tafsirs: "muyassar" (default, one entry per ayah of surah 2) and
 ///   "tabari" (shared entries: 2:1–5 and 2:6–9).
 void populateFixture(Database db) {
   db.execute(contentSchemaSql);
-  db.execute('PRAGMA user_version = 1');
+  db.execute('PRAGMA user_version = 2');
   db.execute("INSERT INTO meta VALUES ('built_at', '2026-11-24T00:00:00Z')");
 
   const counts = [7, 9, 6220];
@@ -46,11 +52,12 @@ void populateFixture(Database db) {
       id++;
       final text = s == 1 && a == 1 ? 'بِسۡمِ ٱللَّهِ ٱلرَّحۡمَٰنِ ٱلرَّحِيمِ ١' : 'آية $s:$a ${a.toString()}';
       final hizb = id <= 16 ? 1 : 2;
-      insertAyah.execute([id, s, a, text, text, 1, hizb, hizb, 1, 0]);
+      insertAyah.execute([id, s, a, text, text, 1, hizb, hizb, s, 0]);
     }
   }
   insertSurah.close();
   insertAyah.close();
+  _populateMushaf(db);
 
   db.execute('''INSERT INTO tafsirs VALUES
     (1, 'muyassar', 'التفسير الميسر', 'الميسر', 'نخبة من العلماء', NULL, 1, 1, 'test', 9),
@@ -83,4 +90,36 @@ ContentDatabase openFixtureDatabase() {
   final db = sqlite3.openInMemory();
   populateFixture(db);
   return ContentDatabase(db);
+}
+
+void _populateMushaf(Database db) {
+  final word = db.prepare('INSERT INTO mushaf_words VALUES (?,?,?,?)');
+  final line = db.prepare('INSERT INTO mushaf_lines VALUES (?,?,?,?,?,?)');
+  var wordId = 0;
+  int addAyah(int ayahId, int number) {
+    word.execute([++wordId, ayahId, 0, 'كلمة$ayahId']);
+    word.execute([++wordId, ayahId, 1, number.toString()]);
+    return wordId;
+  }
+
+  // Page 1: title, then al-Fatihah's 7 ayahs (ids 1..7) on lines 2..8.
+  line.execute([1, 1, 'surah', 1, 0, 0]);
+  for (var a = 1; a <= 7; a++) {
+    final last = addAyah(a, a);
+    line.execute([1, a + 1, 'ayah', 0, last - 1, last]);
+  }
+  // Page 2: title, bismillah, then surah 2's 9 ayahs (ids 8..16) on lines 3..11.
+  line.execute([2, 1, 'surah', 2, 0, 0]);
+  line.execute([2, 2, 'basmala', 2, 0, 0]);
+  for (var a = 1; a <= 9; a++) {
+    final last = addAyah(7 + a, a);
+    line.execute([2, a + 2, 'ayah', 0, last - 1, last]);
+  }
+  // Page 3: title, bismillah, and the first ayah of surah 3 (id 17).
+  line.execute([3, 1, 'surah', 3, 0, 0]);
+  line.execute([3, 2, 'basmala', 3, 0, 0]);
+  final last = addAyah(17, 1);
+  line.execute([3, 3, 'ayah', 0, last - 1, last]);
+  word.close();
+  line.close();
 }
