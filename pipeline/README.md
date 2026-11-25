@@ -1,0 +1,152 @@
+# Tafaseer data pipeline
+
+This pipeline builds `build/tafaseer.db`, the SQLite database that ships inside the app. The database holds:
+
+- the Quran in KFGQPC Hafs text, with surah, juz, hizb, quarter, page and sajda data;
+- six tafsirs, cleaned for reading: al-Muyassar, al-Sa'di, al-Baghawi, Ibn Kathir, al-Qurtubi and al-Tabari.
+
+The pipeline needs only Python 3.10+ and its standard library.
+
+## Run it
+
+```sh
+cd pipeline
+py -m tafaseer_pipeline build                      # downloads missing sources, then builds (about 90 s once cached)
+py -m tafaseer_pipeline build --out ../app/assets/db/tafaseer.db   # build straight into the Flutter app
+py -m tafaseer_pipeline show 2:255                 # print the cleaned tafsirs for one ayah
+py -m tafaseer_pipeline show 112:1 --tafsir tabari --hide-isnad
+py -m unittest discover -s tests -t .              # tests
+```
+
+On macOS and Linux, use `python3` instead of `py`.
+
+Other options:
+
+- `build --only muyassar,saadi` builds a subset.
+- `build --allow-gaps` turns missing ayahs into warnings instead of errors.
+- `fetch` only downloads the sources.
+
+The first build downloads about 270 MB into `cache/`. Each build also writes `build/report.json` with per-tafsir statistics.
+
+## Sources
+
+| Data | Source | Notes |
+|---|---|---|
+| Tafsirs | [QUL](https://qul.tarteel.ai) (Tarteel) IDs 38, 24, 27, 22, 23, 37 | QUL downloads need a login. If you put the downloaded files in `input/qul/` as `<slug>.json` or `<slug>.sqlite` (for example `input/qul/tabari.json`), the pipeline uses them. Otherwise it falls back to [spa5k/tafsir_api](https://github.com/spa5k/tafsir_api), a public mirror of the same QUL data, pinned to one commit in `config.py`. |
+| Quran text | quran.com API v4, `qpc_hafs` and `uthmani_simple` | `qpc_hafs` is the text that matches the KFGQPC Hafs font. Each ayah ends with its number. |
+| Structure | [Tanzil](https://tanzil.net) `quran-data.xml`, CC BY 3.0 | Surah names, Meccan or Medinan, juz, hizb quarters, pages, sajdas. |
+
+The slugs are `muyassar`, `saadi`, `baghawi`, `ibn-kathir`, `qurtubi` and `tabari`.
+
+Neither QUL loader has been run on a real QUL export yet, because the downloads need a login:
+
+- **QUL SQLite** exports use the table `tafsir(ayah_key, group_ayah_key, from_ayah, to_ayah, ayah_keys, text)`. This column layout comes from the open-source [quran-offline-mobile](https://github.com/hndrwn-dk/quran-offline-mobile) app, which reads QUL exports in production. `tests/test_loaders.py` tests the loader against it.
+- **QUL JSON** follows QUL's documented format.
+- **HTML:** the `text` is HTML, hard-wrapped inside `<p>`, with `<h2>` section titles. When you first build from real QUL files, check for `class="qpc-hafs"` blocks (embedded ayah text). That app drops them.
+
+## What the cleaning does
+
+| Step | Why |
+|---|---|
+| Shared commentary becomes one entry covering a range of ayahs. | The app shows "Commentary for 2:1–5" instead of repeating the text on each ayah. |
+| Al-Sa'di's ayahs without their own text join the commentary before them. | He comments on several ayahs at once, and 63 ayahs have no separate text. This applies to al-Sa'di only, so real gaps elsewhere still fail the build. |
+| Editor footnotes `[[…]]` become NOTE spans. | They are shown behind a small marker. A line that is only a footnote becomes an `ed` paragraph. |
+| Quran quotes `﴿…﴾` and `{…}` become QURAN spans without their delimiters. | Every tafsir looks the same, and the app adds ﴿ ﴾. |
+| Narrator chains become ISNAD spans. | Lets the app hide chains. See below. |
+| Headings, poetry lines and dividers are detected. | Better layout: titles in bold, verse centred. |
+| Latin commas and semicolons in Arabic text become `،` and `؛`, spacing is fixed, and tatweel inside words and manuscript folio marks (`٦/أ`) are removed. | Al-Sa'di uses Latin commas throughout. |
+| HTML tags are stripped and entities unescaped. | QUL exports may contain `<b>` and `<p>`. |
+
+The text itself is never rewritten. Diacritics are left in, and the app strips them when the user turns tashkeel off.
+
+### Narrator chains (isnad)
+
+`isnad.py` finds runs of transmission words (حدثنا، أخبرنا، ثنا، عن، أنا …) separated by short narrator names. It hides everything up to the last narrator, who stays visible:
+
+> ~~حدثنا ابن حميد، قال: ثنا سلمة، عن ابن إسحاق،~~ عن ابن عباس قال: …
+
+When unsure, it stops early, because hiding real content is worse than leaving a chain visible. A chain stops at any of these:
+
+- a colon followed by narrated text;
+- the words أنّ, أنه or يقول;
+- a Quran quote;
+- a gap longer than 12 words.
+
+The detector was checked by hand against three random samples of 30 hidden chains:
+
+- The first two samples found three cases that hid real content: "إنا نراك", "أخبرني عن الوضوء", and "حدثنا رسول الله ﷺ … وأنا أنتظر".
+- All three are fixed, and each one is now a test in `tests/test_isnad.py`.
+- The third sample found none.
+
+It hides 16% of al-Tabari's words, 6–7% of Ibn Kathir's and al-Baghawi's, and almost none of the others'. Rare mistakes are still possible, so the app always shows hidden chains as a tappable marker.
+
+## Database format (schema version 1)
+
+`PRAGMA user_version` holds the schema version, and the `meta` table holds `schema_version`, `body_format_version`, `built_at` and the source credits.
+
+| Table | Rows | Purpose |
+|---|---|---|
+| `surahs` | 114 | `name_ar`, `name_translit`, `revelation` (`meccan` or `medinan`), `ayah_count`, `first_ayah_id` |
+| `ayahs` | 6,236 | `id` 1..6236, `surah`, `ayah`, `text` (KFGQPC Hafs), `text_simple`, `juz`, `hizb`, `rub`, `page`, `sajda` |
+| `tafsirs` | 6 | `slug`, `name_ar`, `short_name_ar` (pill label), `author_ar`, `died_hijri`, `sort_order` (pill order), `is_default` (al-Muyassar) |
+| `tafsir_entries` | ~22,000 | `first_ayah_id`..`last_ayah_id`, `words`, `words_without_isnad`, `body` |
+| `tafsir_ayahs` | 37,416 | maps (`ayah_id`, `tafsir_id`) to `entry_id`; keyed by ayah first, so one lookup returns all six tafsirs |
+
+The bismillah is part of ayah 1:1 only. The app draws a bismillah header above every other surah except surah 9.
+
+The long-press query takes about 0.03 ms:
+
+```sql
+SELECT t.id, t.short_name_ar, e.first_ayah_id, e.last_ayah_id, e.words, e.words_without_isnad, e.body
+FROM tafsir_ayahs ta
+JOIN tafsirs t ON t.id = ta.tafsir_id
+JOIN tafsir_entries e ON e.id = ta.entry_id
+WHERE ta.ayah_id = ?
+ORDER BY t.sort_order;
+```
+
+### `body`
+
+`body` is zlib-compressed UTF-8 JSON. In Dart: `jsonDecode(utf8.decode(zlib.decode(body)))`.
+
+```json
+{"v": 1, "p": [
+  {"k": "h",  "s": [[0, "القول في تأويل قوله: "], [1, "قُلْ هُوَ اللَّهُ أَحَدٌ"]]},
+  {"k": "p",  "s": [[2, "حدثنا ابن حميد، قال: ثنا سلمة، "], [0, "عن ابن إسحاق قال: …"], [3, "في المطبوعة: …"]]},
+  {"k": "poem", "s": [[0, "صدر البيت ... عجز البيت"]]},
+  {"k": "hr", "s": []},
+  {"k": "ed", "s": [[3, "هذه الآية لم يتكلم عليها المؤلف …"]]}
+]}
+```
+
+| `k` (paragraph) | Render as |
+|---|---|
+| `p` | normal paragraph |
+| `h` | heading |
+| `poem` | centred verse; split hemistichs on `...` |
+| `hr` | divider |
+| `ed` | an editor's note shown in a muted style; its NOTE spans are visible |
+
+| span type | Meaning | Render as |
+|---|---|---|
+| 0 | text | as is |
+| 1 | Quran quote | wrap in ﴿ ﴾, Quran style |
+| 2 | narrator chain | collapse to a tappable marker when "hide isnad" is on |
+| 3 | editor footnote | small tap-to-show marker (except in `ed` paragraphs) |
+| 4 | sura reference, e.g. `[البقرة: ٢٨١]` | muted, smaller |
+
+The reading-time badge is `words / 150` minutes, or `words_without_isnad / 150` when chains are hidden.
+
+## Size
+
+The database is 45 MB on disk: about 35 MB of compressed tafsir text, 2 MB of Quran text, and per-row SQLite overhead. The bodies are already compressed, so the APK only shrinks it to about 37 MB. If size becomes a problem, per-tafsir zlib dictionaries (Dart's `ZLibDecoder` supports `dictionary`) would shrink the short entries the most.
+
+## Licences and credits
+
+The credits page (B7) must name:
+
+- QUL / Tarteel for the tafsir data;
+- the King Fahd Complex for al-Muyassar and the Hafs text and font;
+- Tanzil (CC BY 3.0) for the Quran metadata.
+
+The five classical tafsirs are public domain. Al-Muyassar and the KFGQPC font are King Fahd Complex works: free use with credit is common practice, but ask for permission before charging money. This pipeline's code can carry the repository's code licence. The data it downloads keeps its own terms.
