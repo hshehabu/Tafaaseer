@@ -66,7 +66,7 @@ void main() {
       watch.start();
       final pills = await GetAyahTafsirs(tafsir)(ayah.id);
       final lookupUs = watch.elapsedMicroseconds;
-      expect(pills.entries.length, 6, reason: '$ref');
+      expect(pills.entries.length, 7, reason: '$ref');
       expect(pills.entries[pills.initialIndex].source.slug, 'muyassar');
       expect(lookupUs, lessThan(20000), reason: 'pill lookup for $ref took $lookupUs µs');
 

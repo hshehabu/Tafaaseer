@@ -33,4 +33,10 @@ void main() {
       expect(withoutAyahNumber('وَهُوَ ٱلۡعَلِيُّ ٱلۡعَظِيمُ ٢٥٥'), 'وَهُوَ ٱلۡعَلِيُّ ٱلۡعَظِيمُ');
     });
   });
+
+  test('foldForSearch ignores diacritics, alef forms and digit scripts', () {
+    expect(foldForSearch('الأَنْعَام'), foldForSearch('الانعام'));
+    expect(foldForSearch('سورة البقرة'), 'سوره البقره');
+    expect(foldForSearch('٢٥٥'), '255');
+  });
 }

@@ -126,4 +126,14 @@ The [30 Juz in 7 Days](../../30-Juz-in-7-Days/robi-work-design.md) design system
 - section 5 items;
 - a bookmark button in the page header.
 
-**Next (after v2.0):** find per-ayah editions of the tafsirs, starting with al-Baghawi, whose QUL edition often comments on several ayahs in one passage (29:64–67, for example). Take one only if its size, licence and download cost are low.
+**After v2.0, per-ayah tafsir editions (decided 25 Nov 2026):**
+- **Switched to the Tafsir Center database** (tafsir.net, CC BY 4.0): al-Sa'di, al-Baghawi, Ibn Kathir and al-Tabari. They comment ayah by ayah; QUL's al-Baghawi shared passages across 5,608 ayahs, for example 29:64–67.
+- **Added al-Mukhtasar fi al-Tafsir** as a seventh pill, after al-Muyassar.
+- **Kept on QUL:**
+  - al-Muyassar, because QUL's is the revised edition: surah introductions, ﴿﴾-marked quotes;
+  - al-Qurtubi, because it isn't in the Tafsir Center database.
+- **Cost:**
+  - **App:** database 47.7 MB to 53.8 MB.
+  - **Build machine:** one 234 MB download.
+  - **Users:** nothing extra.
+- **Benefit:** each long-press decodes less text. Typical entries for al-Baghawi and Ibn Kathir are 3–4.5 times smaller.

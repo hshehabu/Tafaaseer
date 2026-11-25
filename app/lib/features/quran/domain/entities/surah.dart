@@ -11,6 +11,7 @@ class Surah {
     required this.revelation,
     required this.ayahCount,
     required this.firstAyahId,
+    required this.startPage,
   });
 
   final int id;
@@ -21,6 +22,9 @@ class Surah {
 
   /// Global id (1..6236) of this surah's first ayah.
   final int firstAyahId;
+
+  /// The mushaf page (1..604) the surah starts on.
+  final int startPage;
 
   /// Al-Fatihah's bismillah is its first ayah, and at-Tawbah has none.
   bool get showsBismillahHeader => id != 1 && id != 9;

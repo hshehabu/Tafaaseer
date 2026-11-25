@@ -16,7 +16,11 @@ _MARK = {1: ("﴿", "﴾"), 2: ("⟦سند: ", "⟧"), 3: ("[حاشية: ", "]")
 def _fetch(_args) -> int:
     sources.quran_files()
     mushaf.page_files()
+    if any(t.center for t in config.TAFSIRS):
+        sources.center_db()
     for tafsir in config.TAFSIRS:
+        if tafsir.center:
+            continue
         if sources.qul_file(tafsir):
             print(f"{tafsir.slug}: using {sources.qul_file(tafsir)}", file=sys.stderr)
         else:

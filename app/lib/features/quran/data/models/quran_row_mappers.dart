@@ -15,6 +15,7 @@ abstract final class QuranRowMappers {
     revelation: r['revelation'] == 'meccan' ? Revelation.meccan : Revelation.medinan,
     ayahCount: r['ayah_count'] as int,
     firstAyahId: r['first_ayah_id'] as int,
+    startPage: r['start_page'] as int,
   );
 
   static Ayah ayah(Row r) => Ayah(

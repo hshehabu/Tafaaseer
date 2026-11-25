@@ -6,7 +6,7 @@ abstract final class ContentDbConfig {
 
   /// Bump whenever an app update ships a new tafaseer.db. The app then
   /// replaces its on-device copy on the next launch.
-  static const bundleVersion = 3;
+  static const bundleVersion = 4;
 
   /// The schema this code understands (PRAGMA user_version of the database).
   /// Version 2 added the mushaf page layout (mushaf_lines, mushaf_words).

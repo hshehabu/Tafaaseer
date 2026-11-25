@@ -7,12 +7,14 @@ import '../../../core/arabic/arabic_text.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/app_palette.dart';
 import '../../bookmarks/presentation/providers/bookmarks_providers.dart';
+import '../../notes/presentation/providers/notes_providers.dart';
 import '../../quran/domain/entities/ayah.dart';
 import '../../quran/presentation/providers/quran_providers.dart';
 import '../../settings/presentation/settings_providers.dart';
 import '../domain/entities/tafsir_entry.dart';
 import '../domain/usecases/get_ayah_tafsirs.dart';
 import 'providers/tafsir_providers.dart';
+import 'widgets/ayah_note_editor.dart';
 import 'widgets/tafsir_paragraph_view.dart';
 
 /// Opens the tafsir sheet for [ayah]. This is the tafsir feature's public entry
@@ -59,6 +61,9 @@ class _TafsirSheetState extends ConsumerState<TafsirSheet> {
   int? _selectedSourceId;
   int? _shownEntryId;
 
+  /// The note pill is selected: the sheet shows the reader's own note instead of a tafsir.
+  bool _noteOpen = false;
+
   ScrollController get _scroll => widget.scrollController;
 
   TafsirEntry _selected(AyahTafsirs tafsirs) {
@@ -73,14 +78,26 @@ class _TafsirSheetState extends ConsumerState<TafsirSheet> {
 
   void _selectSource(int sourceId) {
     _rememberScroll();
-    setState(() => _selectedSourceId = sourceId);
+    setState(() {
+      _selectedSourceId = sourceId;
+      _noteOpen = false;
+    });
+  }
+
+  void _openNote() {
+    _rememberScroll();
+    setState(() => _noteOpen = true);
   }
 
   Future<void> _step(int delta) async {
     final next = await ref.read(quranRepositoryProvider).getAyahById(_ayah.id + delta);
     if (next == null || !mounted) return;
     _rememberScroll();
-    setState(() => _ayah = next);
+    setState(() {
+      _ayah = next;
+      // Stay on the note pill only if the next ayah has a note too.
+      _noteOpen = _noteOpen && ref.read(noteProvider(next.ref)) != null;
+    });
     widget.onAyahChanged?.call(next);
   }
 
@@ -124,7 +141,9 @@ class _TafsirSheetState extends ConsumerState<TafsirSheet> {
     final entry = _selected(tafsirs);
     final documentAsync = ref.watch(tafsirDocumentProvider(entry.id));
     final paragraphs = documentAsync.value?.paragraphs;
-    if (paragraphs != null) _restoreScroll(entry.id);
+    if (paragraphs != null && !_noteOpen) _restoreScroll(entry.id);
+    // The note pill exists while a note has text, or while the reader is writing one.
+    final hasNote = ref.watch(noteProvider(_ayah.ref)) != null;
 
     return CustomScrollView(
       controller: _scroll,
@@ -141,19 +160,28 @@ class _TafsirSheetState extends ConsumerState<TafsirSheet> {
                   hideIsnad: options.hideIsnad,
                   onPrevious: _ayah.id > 1 ? () => _step(-1) : null,
                   onNext: _ayah.id < 6236 ? () => _step(1) : null,
+                  onNote: _openNote,
                 ),
                 _SourcePills(
                   entries: tafsirs.entries,
-                  selected: entry,
+                  selected: _noteOpen ? null : entry,
                   hideIsnad: options.hideIsnad,
                   onSelected: _selectSource,
+                  showNotePill: hasNote || _noteOpen,
+                  noteSelected: _noteOpen,
+                  onNoteSelected: _openNote,
                 ),
                 const Divider(height: 1),
               ],
             ),
           ),
         ),
-        switch (documentAsync) {
+        if (_noteOpen)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: AyahNoteEditor(key: ValueKey(_ayah.ref), ayah: _ayah.ref),
+          )
+        else switch (documentAsync) {
           AsyncError() => const SliverFillRemaining(hasScrollBody: false, child: _Message(AppStrings.tafsirLoadFailed)),
           _ when paragraphs == null => const SliverToBoxAdapter(child: LinearProgressIndicator(minHeight: 2)),
           _ => SliverPadding(
@@ -181,6 +209,7 @@ class _SheetHeader extends ConsumerWidget {
     required this.hideIsnad,
     required this.onPrevious,
     required this.onNext,
+    required this.onNote,
   });
 
   final Ayah ayah;
@@ -188,6 +217,7 @@ class _SheetHeader extends ConsumerWidget {
   final bool hideIsnad;
   final VoidCallback? onPrevious;
   final VoidCallback? onNext;
+  final VoidCallback onNote;
 
   Future<String> _shareText(WidgetRef ref) async {
     final surahs = await ref.read(surahsProvider.future);
@@ -244,6 +274,11 @@ class _SheetHeader extends ConsumerWidget {
             icon: const Icon(Icons.chevron_right),
           ),
           IconButton(
+            tooltip: AppStrings.myNote,
+            icon: Icon(ref.watch(noteProvider(ayah.ref)) == null ? Icons.edit_outlined : Icons.edit_note),
+            onPressed: onNote,
+          ),
+          IconButton(
             tooltip: AppStrings.copy,
             icon: const Icon(Icons.copy_outlined),
             onPressed: () async {
@@ -291,12 +326,20 @@ class _SourcePills extends StatelessWidget {
     required this.selected,
     required this.hideIsnad,
     required this.onSelected,
+    required this.showNotePill,
+    required this.noteSelected,
+    required this.onNoteSelected,
   });
 
   final List<TafsirEntry> entries;
-  final TafsirEntry selected;
+
+  /// Null while the note pill is selected.
+  final TafsirEntry? selected;
   final bool hideIsnad;
   final ValueChanged<int> onSelected;
+  final bool showNotePill;
+  final bool noteSelected;
+  final VoidCallback onNoteSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -306,12 +349,23 @@ class _SourcePills extends StatelessWidget {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        itemCount: entries.length,
+        itemCount: entries.length + (showNotePill ? 1 : 0),
         separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, i) {
-          final e = entries[i];
+        itemBuilder: (context, index) {
+          // The reader's own note comes first, so it is never scrolled out of sight.
+          if (showNotePill && index == 0) {
+            return ChoiceChip(
+              avatar: Icon(Icons.edit_note, size: 18, color: palette.primary),
+              label: const Text(AppStrings.myNote),
+              selected: noteSelected,
+              showCheckmark: false,
+              side: BorderSide(color: noteSelected ? palette.secondaryBorder : palette.border),
+              onSelected: (_) => onNoteSelected(),
+            );
+          }
+          final e = entries[index - (showNotePill ? 1 : 0)];
           final minutes = toArabicDigits(e.readingMinutes(hideIsnad: hideIsnad));
-          final isSelected = e.id == selected.id;
+          final isSelected = e.id == selected?.id;
           return ChoiceChip(
             label: Row(
               mainAxisSize: MainAxisSize.min,

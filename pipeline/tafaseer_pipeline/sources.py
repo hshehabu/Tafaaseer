@@ -1,6 +1,7 @@
 """Download and cache the raw inputs."""
 
 import json
+import sqlite3
 import sys
 import time
 import urllib.request
@@ -58,6 +59,22 @@ def mirror_files(tafsir: config.Tafsir, workers: int = 8) -> dict[int, Path]:
             path.unlink(missing_ok=True)
             raise RuntimeError(f"{tafsir.slug} surah {surah}: downloaded file is not valid JSON; run again")
     return files
+
+
+def center_db() -> Path:
+    """The Tafsir Center SQLite database (about 234 MB, cached after the first build)."""
+    dest = config.CACHE_DIR / "tafsircenter" / config.CENTER_REVISION[:12] / "quran.db"
+    if not dest.exists():
+        print("  downloading the Tafsir Center database (about 234 MB, once) ...", file=sys.stderr)
+    path = _download(config.CENTER_URL, dest)
+    try:  # fail early on a truncated download or an HTML error page
+        con = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+        con.execute("SELECT count(*) FROM tafsir_baghawy").fetchone()
+        con.close()
+    except sqlite3.DatabaseError:
+        path.unlink(missing_ok=True)
+        raise RuntimeError("the Tafsir Center download is not a valid database; run again")
+    return path
 
 
 def qul_file(tafsir: config.Tafsir) -> Path | None:

@@ -25,6 +25,7 @@ void main() {
     expect(surahs.map((s) => s.ayahCount), [7, 9, 6220]);
     expect(surahs[1].revelation, Revelation.medinan);
     expect(surahs[1].firstAyahId, 8);
+    expect(surahs.map((s) => s.startPage), [1, 2, 3]);
     expect(surahs[0].showsBismillahHeader, isFalse);
   });
 

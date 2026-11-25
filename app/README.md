@@ -115,6 +115,31 @@ flutter analyze     # strict casts/inference + extra lints (analysis_options.yam
 
 `test/helpers/content_db_fixture.dart` builds a small database with the pipeline's exact schema, so repository tests use real SQL without the 45 MB file.
 
+## Release build
+
+Phones from the last several years are 64-bit ARM, so one APK covers them:
+
+```sh
+flutter build apk --release --split-per-abi --target-platform android-arm64   --obfuscate --split-debug-info=build/app/outputs/symbols
+```
+
+This gives `build/app/outputs/flutter-apk/app-arm64-v8a-release.apk`, about 60 MB. Keep `build/app/outputs/symbols` for each release you ship: crash stack traces from an obfuscated build can only be read with them (`flutter symbolize`).
+
+## App icon
+
+The launcher icon is concept A, "open mushaf" (drafts in ../docs/icons/index.html). `tool/app_icon/generate_app_icon_test.dart` defines its shapes once and writes everything from them:
+
+- the adaptive icon (Android 8+): `res/drawable/ic_launcher_{background,foreground}.xml` and `res/mipmap-anydpi-v26/ic_launcher.xml`;
+- the themed, one-colour icon (Android 13+): `res/drawable/ic_launcher_monochrome.xml`;
+- PNGs for Android 7: `res/mipmap-*/ic_launcher.png`;
+- the 512 px Play Store icon: `store/play_store_icon.png`.
+
+To change the icon, edit the generator and run it, rather than editing those files:
+
+```sh
+flutter test tool/app_icon/generate_app_icon_test.dart
+```
+
 ## Shipping checklist
 
 1. **Data:** rebuild the database from the official QUL exports, not the GitHub mirror (see ../docs/v1-scope.md).
@@ -127,5 +152,4 @@ flutter analyze     # strict casts/inference + extra lints (analysis_options.yam
 
 - Find within the open tafsir entry (E9).
 - Side-by-side layout on tablets (E11).
-- App icon and name artwork (B8).
 - Crash reporting (B5).

@@ -8,7 +8,7 @@ import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import BODY_FORMAT_VERSION, SCHEMA_VERSION, config, loaders, mushaf, quran, sources
+from . import BODY_FORMAT_VERSION, SCHEMA_VERSION, center, config, loaders, mushaf, quran, sources
 from .clean import clean_entry
 
 SCHEMA = """
@@ -89,6 +89,9 @@ def _source_label(tafsir: config.Tafsir, qul_path: Path | None) -> str:
 
 
 def _load_raw(tafsir: config.Tafsir, index: loaders.AyahIndex) -> tuple[list[loaders.RawEntry], str]:
+    if tafsir.center:
+        entries = center.load(sources.center_db(), tafsir.center, index)
+        return entries, f"{config.CENTER_CREDIT} ({tafsir.center.table}@{config.CENTER_REVISION[:12]})"
     qul_path = sources.qul_file(tafsir)
     if qul_path is None:
         entries = loaders.load_mirror(sources.mirror_files(tafsir), index)
@@ -204,7 +207,8 @@ def build(out: Path, only: list[str] | None = None, allow_gaps: bool = False) ->
         "quran_text_source": "KFGQPC Hafs text via quran.com API v4 (qpc_hafs)",
         "quran_metadata_source": "Tanzil.net quran-data.xml (CC BY 3.0)",
         "mushaf_layout_source": "Madani 15-line layout via quran.com API v4 (word line numbers)",
-        "tafsir_source": "Quranic Universal Library (qul.tarteel.ai) by Tarteel",
+        "tafsir_source": "Quranic Universal Library (qul.tarteel.ai) by Tarteel: al-Muyassar, al-Qurtubi; "
+                         + config.CENTER_CREDIT + ": al-Mukhtasar, al-Sa'di, al-Baghawi, Ibn Kathir, al-Tabari",
     }
     con.executemany("INSERT INTO meta VALUES (?, ?)", [(k, str(v)) for k, v in meta.items()])
     con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

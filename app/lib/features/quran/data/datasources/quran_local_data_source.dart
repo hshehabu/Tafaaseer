@@ -11,9 +11,11 @@ class QuranLocalDataSource {
 
   static const _ayahColumns = 'id, surah, ayah, text, juz, hizb, page, sajda';
 
-  ResultSet surahs() => _db.select(
-    'SELECT id, name_ar, name_translit, revelation, ayah_count, first_ayah_id FROM surahs ORDER BY id',
-  );
+  ResultSet surahs() => _db.select('''
+    SELECT s.id, s.name_ar, s.name_translit, s.revelation, s.ayah_count, s.first_ayah_id, a.page AS start_page
+    FROM surahs s JOIN ayahs a ON a.id = s.first_ayah_id
+    ORDER BY s.id
+  ''');
 
   Row? ayah(int surah, int ayah) =>
       _db.select('SELECT $_ayahColumns FROM ayahs WHERE surah = ? AND ayah = ?', [surah, ayah]).firstOrNull;

@@ -22,11 +22,15 @@ class MushafPageView extends ConsumerStatefulWidget {
     required this.pageNumber,
     required this.highlightedAyahId,
     required this.onAyahLongPress,
+    this.onTap,
   });
 
   final int pageNumber;
   final int? highlightedAyahId;
   final ValueChanged<int> onAyahLongPress;
+
+  /// A plain tap anywhere on the page (the reader uses it to show or hide its bar).
+  final VoidCallback? onTap;
 
   @override
   ConsumerState<MushafPageView> createState() => _MushafPageViewState();
@@ -63,6 +67,7 @@ class _MushafPageViewState extends ConsumerState<MushafPageView> {
           hint: AppStrings.longPressHint,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
+            onTap: widget.onTap,
             onLongPressStart: (details) {
               final ayahId = layout.ayahAt(details.localPosition);
               if (ayahId == null) return;

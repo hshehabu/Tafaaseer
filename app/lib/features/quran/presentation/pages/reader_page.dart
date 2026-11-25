@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/arabic/arabic_text.dart';
@@ -40,6 +41,9 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
   Timer? _highlightTimer;
   Timer? _hintTimer;
   bool _hintVisible = true;
+
+  /// Only the mushaf text: the top bar is hidden (toggled by a tap on the page).
+  bool _immersive = false;
 
   @override
   void initState() {
@@ -122,37 +126,64 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
   @override
   Widget build(BuildContext context) {
     final page = ref.watch(mushafPageProvider(_page));
-    final showHint = _hintVisible && !ref.watch(settingsProvider.select((s) => s.tafsirHintSeen));
+    final showHint = _hintVisible && !_immersive && !ref.watch(settingsProvider.select((s) => s.tafsirHintSeen));
+    final palette = AppPalette.of(context);
+    final topInset = MediaQuery.paddingOf(context).top;
+    const animation = Duration(milliseconds: 220);
 
-    return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 0,
-        title: _PageTitle(page: page),
-        actions: [
-          IconButton(tooltip: AppStrings.jumpToAyah, icon: const Icon(Icons.search), onPressed: _jump),
-          const SizedBox(width: 4),
-        ],
-      ),
-      body: SafeArea(
-        top: false,
-        child: Stack(
+    final bar = AppBar(
+      titleSpacing: 0,
+      title: _PageTitle(page: page),
+      actions: [
+        IconButton(tooltip: AppStrings.jumpToAyah, icon: const Icon(Icons.search), onPressed: _jump),
+        const SizedBox(width: 4),
+      ],
+    );
+
+    // The bar floats over the page instead of taking space from it, so showing
+    // or hiding it never resizes the mushaf text (a tap toggles it, as in Tarteel).
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: palette.brightness == Brightness.dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+      child: Scaffold(
+        body: Stack(
           children: [
-            // In a right-to-left app the next page sits to the left, as in a printed mushaf.
-            PageView.builder(
-              controller: _controller,
-              itemCount: MushafConfig.pageCount,
-              onPageChanged: _onPageChanged,
-              itemBuilder: (context, index) => _PageFrame(
-                pageNumber: index + 1,
-                child: MushafPageView(
-                  pageNumber: index + 1,
-                  highlightedAyahId: _highlighted,
-                  onAyahLongPress: _openTafsir,
+            Padding(
+              padding: EdgeInsets.only(top: topInset + kToolbarHeight),
+              child: SafeArea(
+                top: false,
+                // In a right-to-left app the next page sits to the left, as in a printed mushaf.
+                child: PageView.builder(
+                  controller: _controller,
+                  itemCount: MushafConfig.pageCount,
+                  onPageChanged: _onPageChanged,
+                  itemBuilder: (context, index) => _PageFrame(
+                    pageNumber: index + 1,
+                    child: MushafPageView(
+                      pageNumber: index + 1,
+                      highlightedAyahId: _highlighted,
+                      onAyahLongPress: _openTafsir,
+                      onTap: () => setState(() => _immersive = !_immersive),
+                    ),
+                  ),
                 ),
               ),
             ),
             if (showHint)
-              const PositionedDirectional(start: 16, end: 16, bottom: 16, child: _LongPressHint()),
+              const PositionedDirectional(start: 16, end: 16, bottom: 24, child: SafeArea(child: _LongPressHint())),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: IgnorePointer(
+                ignoring: _immersive,
+                child: AnimatedSlide(
+                  offset: _immersive ? const Offset(0, -1) : Offset.zero,
+                  duration: animation,
+                  curve: Curves.easeOut,
+                  child: AnimatedOpacity(opacity: _immersive ? 0 : 1, duration: animation, child: bar),
+                ),
+              ),
+            ),
           ],
         ),
       ),

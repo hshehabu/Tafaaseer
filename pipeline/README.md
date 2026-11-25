@@ -4,7 +4,7 @@ This pipeline builds `build/tafaseer.db`, the SQLite database that ships inside 
 
 - the Quran in KFGQPC Hafs text, with surah, juz, hizb, quarter, page and sajda data;
 - the Madani mushaf page layout: 604 pages of 15 lines, every word placed on its line;
-- six tafsirs, cleaned for reading: al-Muyassar, al-Sa'di, al-Baghawi, Ibn Kathir, al-Qurtubi and al-Tabari.
+- seven tafsirs, cleaned for reading: al-Muyassar, al-Mukhtasar, al-Sa'di, al-Baghawi, Ibn Kathir, al-Qurtubi and al-Tabari.
 
 The pipeline needs only Python 3.10+ and its standard library.
 
@@ -28,19 +28,22 @@ Other options:
 - `build --allow-gaps` turns missing ayahs into warnings instead of errors.
 - `fetch` only downloads the sources.
 
-The first build downloads about 270 MB into `cache/`. Each build also writes `build/report.json` with per-tafsir and mushaf statistics, wherever `--out` points.
+The first build downloads about 320 MB into `cache/` (most of it the Tafsir Center database). Each build also writes `build/report.json` with per-tafsir and mushaf statistics, wherever `--out` points.
 
 ## Sources
 
 | Data | Source | Notes |
 |---|---|---|
-| Tafsirs | [QUL](https://qul.tarteel.ai) (Tarteel) IDs 38, 24, 27, 22, 23, 37 | QUL downloads need a login. If you put the downloaded files in `input/qul/` as `<slug>.json` or `<slug>.sqlite` (for example `input/qul/tabari.json`), the pipeline uses them. Otherwise it falls back to [spa5k/tafsir_api](https://github.com/spa5k/tafsir_api), a public mirror of the same QUL data, pinned to one commit in `config.py`. |
+| Tafsirs, per ayah | [Tafsir Center for Quranic Studies](https://tafsir.net) database on [Hugging Face](https://huggingface.co/datasets/tafsircenter/tafsir-mcp-data), CC BY 4.0 | al-Mukhtasar, al-Sa'di, al-Baghawi, Ibn Kathir, al-Tabari. One 234 MB SQLite file, pinned to one revision in `config.py`. Its editions comment ayah by ayah, where QUL's often share one passage across several ayahs (al-Baghawi: 4 shared ayahs instead of 5,608). See "Tafsir Center markup" below. |
+| Tafsirs | [QUL](https://qul.tarteel.ai) (Tarteel) IDs 38 and 23 | QUL downloads need a login. If you put the downloaded files in `input/qul/` as `<slug>.json` or `<slug>.sqlite` (for example `input/qul/tabari.json`), the pipeline uses them. Otherwise it falls back to [spa5k/tafsir_api](https://github.com/spa5k/tafsir_api), a public mirror of the same QUL data, pinned to one commit in `config.py`. |
 | Quran text | quran.com API v4, `qpc_hafs` and `uthmani_simple` | `qpc_hafs` is the text that matches the KFGQPC Hafs font. Each ayah ends with its number. |
 | Structure | [Tanzil](https://tanzil.net) `quran-data.xml`, CC BY 3.0 | Surah names, Meccan or Medinan, juz, hizb quarters, pages, sajdas. Six names are corrected to the mushaf spelling (`NAME_FIXES` in `quran.py`), for example ابراهيم to إبراهيم. |
 | Mushaf layout | quran.com API v4, `verses/by_page` with each word's `line_number` | The Madani 15-line layout. See "Mushaf pages" below. |
 | Mushaf fonts | KFGQPC Uthmanic Script HAFS v18, and QUL's quran-common and surah-name (v4) fonts, from QUL's CDN | `py -m tafaseer_pipeline font` copies them into the app. Not committed. |
 
-The slugs are `muyassar`, `saadi`, `baghawi`, `ibn-kathir`, `qurtubi` and `tabari`.
+QUL is used for al-Muyassar (QUL's is the revised edition, with surah introductions and ﴿﴾-marked quotes) and al-Qurtubi (not in the Tafsir Center database).
+
+The slugs are `muyassar`, `mukhtasar`, `saadi`, `baghawi`, `ibn-kathir`, `qurtubi` and `tabari`.
 
 Neither QUL loader has been run on a real QUL export yet, because the downloads need a login:
 
@@ -83,6 +86,16 @@ The detector was checked by hand against three random samples of 30 hidden chain
 - The third sample found none.
 
 It hides 16% of al-Tabari's words, 6–7% of Ibn Kathir's and al-Baghawi's, and almost none of the others'. Rare mistakes are still possible, so the app always shows hidden chains as a tappable marker.
+
+## Tafsir Center markup
+
+`center.py` rewrites the Tafsir Center texts into the markup the cleaner already understands, then they go through the same cleaning as QUL's:
+
+- **Footnotes:** `¬ … ¥` becomes `[[ … ]]`, so they turn into footnote markers. These hold manuscript variants and hadith sourcing and grading.
+- **The quoted ayah at the start** (`{… (64)}.`) is dropped, because the app shows the ayah already. Al-Sa'di's repeated `{64}` marker goes with it.
+- **Ayah numbers inside quotes** become Arabic digits: `(30)` becomes `(٣٠)`.
+- **Al-Tabari's 11 old-style ayahs** (for example 112:1–4) quote the Quran in spaced parentheses `( … )`. These become quotes only in ayahs that have no braces at all.
+- **Ayahs explained together with the one before:** in the source, their row holds only their own quote (al-Baghawi 3:5) or an empty `<br>` (al-Tabari 26:16), and the ayah before quotes both. Such an ayah joins the entry before it.
 
 ## Mushaf pages
 
@@ -163,13 +176,14 @@ The reading-time badge is `words / 150` minutes, or `words_without_isnad / 150` 
 
 ## Size
 
-The database is 47.7 MB on disk: about 35 MB of compressed tafsir text, 2 MB of Quran text, 2.5 MB of mushaf layout, and per-row SQLite overhead. The bodies are already compressed, so the APK only shrinks it to about 37 MB. If size becomes a problem, per-tafsir zlib dictionaries (Dart's `ZLibDecoder` supports `dictionary`) would shrink the short entries the most.
+The database is 53.8 MB on disk: about 35 MB of compressed tafsir text, 2 MB of Quran text, 2.5 MB of mushaf layout, and per-row SQLite overhead. The bodies are already compressed, so the APK only shrinks it to about 37 MB. If size becomes a problem, per-tafsir zlib dictionaries (Dart's `ZLibDecoder` supports `dictionary`) would shrink the short entries the most.
 
 ## Licences and credits
 
 The credits page (B7) must name:
 
-- QUL / Tarteel for the tafsir data;
+- the Tafsir Center for Quranic Studies (tafsir.net) for al-Mukhtasar, al-Sa'di, al-Baghawi, Ibn Kathir and al-Tabari (CC BY 4.0: credit required);
+- QUL / Tarteel for al-Muyassar and al-Qurtubi;
 - the King Fahd Complex for al-Muyassar and the Hafs text and font;
 - quran.com for the mushaf page layout;
 - Tanzil (CC BY 3.0) for the Quran metadata.

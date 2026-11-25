@@ -25,6 +25,9 @@ abstract final class AppStrings {
   static const meccan = 'مكية';
   static const medinan = 'مدنية';
   /// "٧ آيات", "٢٨٦ آية": Arabic uses the plural for 3-10.
+  static const surahSearchHint = 'ابحث باسم السورة أو رقمها أو مكية/مدنية';
+  static const clear = 'مسح';
+  static String pageShort(String n) => 'ص $n';
   static String ayahCount(int n, String digits) => n >= 3 && n <= 10 ? '$digits آيات' : '$digits آية';
 
   /// Joins short facts. The Arabic comma, never "·", which reads like the digit zero ٠.
@@ -49,6 +52,8 @@ abstract final class AppStrings {
   static const bookmarkAdded = 'حُفظت العلامة';
   static const bookmarkRemoved = 'أُزيلت العلامة';
   static const nextAyah = 'الآية التالية';
+  static const myNote = 'ملاحظاتي';
+  static const noteHint = 'اكتب ملاحظتك على هذه الآية…';
   static const previousAyah = 'الآية السابقة';
   static const isnad = 'السند';
   static const footnote = 'حاشية';
@@ -80,7 +85,9 @@ abstract final class AppStrings {
   static const sourcesBody =
       'نص المصحف وخطه: مجمع الملك فهد لطباعة المصحف الشريف.\n'
       'ترتيب صفحات المصحف وأسطره: مصحف المدينة النبوية، عبر quran.com.\n'
-      'التفاسير: المكتبة القرآنية الشاملة (QUL) من Tarteel.\n'
+      'المختصر في التفسير، وتفاسير السعدي والبغوي وابن كثير والطبري: '
+      'مركز تفسير للدراسات القرآنية (tafsir.net)، برخصة CC BY 4.0.\n'
+      'التفسير الميسر وتفسير القرطبي: المكتبة القرآنية الشاملة (QUL) من Tarteel.\n'
       'التفسير الميسر: مجمع الملك فهد لطباعة المصحف الشريف.\n'
       'بيانات الأجزاء والأحزاب: Tanzil.net (CC BY 3.0).';
 }
