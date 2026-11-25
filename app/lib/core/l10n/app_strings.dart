@@ -27,6 +27,8 @@ abstract final class AppStrings {
   /// "٧ آيات", "٢٨٦ آية": Arabic uses the plural for 3-10.
   static const surahSearchHint = 'ابحث باسم السورة أو رقمها أو مكية/مدنية';
   static const clear = 'مسح';
+  static const noSurahFound = 'لا توجد سورة بهذا الاسم أو الرقم';
+  static const undo = 'تراجع';
   static String pageShort(String n) => 'ص $n';
   static String ayahCount(int n, String digits) => n >= 3 && n <= 10 ? '$digits آيات' : '$digits آية';
 

@@ -37,7 +37,9 @@ class _SurahListState extends ConsumerState<SurahList> {
     if (int.tryParse(query) case final n?) return s.id == n;
     final kind = s.revelation == Revelation.meccan ? AppStrings.meccan : AppStrings.medinan;
     final name = foldForSearch(s.nameAr);
-    return name.contains(query) || foldForSearch(kind).startsWith(query) || name.replaceFirst('ال', '').startsWith(query);
+    return name.contains(query) ||
+        foldForSearch(kind).startsWith(query) ||
+        name.replaceFirst('ال', '').startsWith(query);
   }
 
   @override
@@ -73,6 +75,15 @@ class _SurahListState extends ConsumerState<SurahList> {
             ),
           ),
         ),
+        if (searching && shown.isEmpty)
+          Padding(
+            padding: const EdgeInsets.all(32),
+            child: Text(
+              AppStrings.noSurahFound,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppPalette.of(context).muted),
+            ),
+          ),
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.only(bottom: 28),
@@ -124,7 +135,10 @@ class _SurahTile extends StatelessWidget {
                   children: [
                     _SurahName(surah: surah),
                     Text(
-                      AppStrings.joinFacts([kind, AppStrings.ayahCount(surah.ayahCount, toArabicDigits(surah.ayahCount))]),
+                      AppStrings.joinFacts([
+                        kind,
+                        AppStrings.ayahCount(surah.ayahCount, toArabicDigits(surah.ayahCount)),
+                      ]),
                       style: TextStyle(fontSize: 13, color: palette.muted),
                     ),
                   ],
@@ -155,7 +169,13 @@ class _SurahName extends StatelessWidget {
     if (!QuranFonts.decorations) {
       return Text(
         surah.nameAr,
-        style: TextStyle(fontFamily: UiFonts.classical, fontSize: 20, fontWeight: FontWeight.w700, height: 1.4, color: color),
+        style: TextStyle(
+          fontFamily: UiFonts.classical,
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+          height: 1.4,
+          color: color,
+        ),
       );
     }
     return Semantics(

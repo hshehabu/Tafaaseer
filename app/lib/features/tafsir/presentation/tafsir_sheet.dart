@@ -15,6 +15,7 @@ import '../domain/entities/tafsir_entry.dart';
 import '../domain/usecases/get_ayah_tafsirs.dart';
 import 'providers/tafsir_providers.dart';
 import 'widgets/ayah_note_editor.dart';
+import 'widgets/handle_sized_sheet.dart';
 import 'widgets/tafsir_paragraph_view.dart';
 
 /// Opens the tafsir sheet for [ayah]. This is the tafsir feature's public entry
@@ -28,14 +29,9 @@ Future<void> showTafsirSheet(BuildContext context, {required Ayah ayah, ValueCha
     useSafeArea: true,
     // Light enough that the highlighted ayah stays visible above the sheet.
     barrierColor: Colors.black.withValues(alpha: 0.12),
-    showDragHandle: true,
-    builder: (_) => DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.55,
-      minChildSize: 0.3,
-      maxChildSize: 1,
-      snap: true,
-      snapSizes: const [0.55],
+    // Only the handle resizes the sheet; scrolling a long tafsir scrolls the text inside it.
+    enableDrag: false,
+    builder: (_) => HandleSizedSheet(
       builder: (context, scrollController) =>
           TafsirSheet(initialAyah: ayah, scrollController: scrollController, onAyahChanged: onAyahChanged),
     ),
@@ -127,6 +123,9 @@ class _TafsirSheetState extends ConsumerState<TafsirSheet> {
     return ScaffoldMessenger(
       child: Scaffold(
         backgroundColor: Colors.transparent,
+        // HandleSizedSheet already keeps the content above the keyboard; resizing here too
+        // would take the keyboard's height away twice and squeeze the note field out of sight.
+        resizeToAvoidBottomInset: false,
         body: switch (tafsirsAsync) {
           AsyncData(:final value) when value.isEmpty => const _Message(AppStrings.noTafsir),
           AsyncData(:final value) => _buildContent(value, options),
@@ -145,59 +144,65 @@ class _TafsirSheetState extends ConsumerState<TafsirSheet> {
     // The note pill exists while a note has text, or while the reader is writing one.
     final hasNote = ref.watch(noteProvider(_ayah.ref)) != null;
 
-    return CustomScrollView(
-      controller: _scroll,
-      slivers: [
-        PinnedHeaderSliver(
-          child: Material(
-            color: Theme.of(context).colorScheme.surfaceContainerLow,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _SheetHeader(
-                  ayah: _ayah,
-                  entry: entry,
-                  hideIsnad: options.hideIsnad,
-                  onPrevious: _ayah.id > 1 ? () => _step(-1) : null,
-                  onNext: _ayah.id < 6236 ? () => _step(1) : null,
-                  onNote: _openNote,
+    // Long-press and drag selects part of the tafsir to copy; the header and pills stay plain controls.
+    return SelectionArea(
+      child: CustomScrollView(
+        controller: _scroll,
+        slivers: [
+          PinnedHeaderSliver(
+            child: SelectionContainer.disabled(
+              child: Material(
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _SheetHeader(
+                      ayah: _ayah,
+                      entry: entry,
+                      hideIsnad: options.hideIsnad,
+                      onPrevious: _ayah.id > 1 ? () => _step(-1) : null,
+                      onNext: _ayah.id < 6236 ? () => _step(1) : null,
+                      onNote: _openNote,
+                    ),
+                    _SourcePills(
+                      entries: tafsirs.entries,
+                      selected: _noteOpen ? null : entry,
+                      hideIsnad: options.hideIsnad,
+                      onSelected: _selectSource,
+                      showNotePill: hasNote || _noteOpen,
+                      noteSelected: _noteOpen,
+                      onNoteSelected: _openNote,
+                    ),
+                    const Divider(height: 1),
+                  ],
                 ),
-                _SourcePills(
-                  entries: tafsirs.entries,
-                  selected: _noteOpen ? null : entry,
-                  hideIsnad: options.hideIsnad,
-                  onSelected: _selectSource,
-                  showNotePill: hasNote || _noteOpen,
-                  noteSelected: _noteOpen,
-                  onNoteSelected: _openNote,
-                ),
-                const Divider(height: 1),
-              ],
-            ),
-          ),
-        ),
-        if (_noteOpen)
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: AyahNoteEditor(key: ValueKey(_ayah.ref), ayah: _ayah.ref),
-          )
-        else switch (documentAsync) {
-          AsyncError() => const SliverFillRemaining(hasScrollBody: false, child: _Message(AppStrings.tafsirLoadFailed)),
-          _ when paragraphs == null => const SliverToBoxAdapter(child: LinearProgressIndicator(minHeight: 2)),
-          _ => SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 48),
-            sliver: SliverList.builder(
-              itemCount: paragraphs.length,
-              // Built lazily: al-Qurtubi's longest entry has ~100k characters.
-              itemBuilder: (context, i) => TafsirParagraphView(
-                key: ValueKey('${entry.id}-$i'),
-                paragraph: paragraphs[i],
-                options: options,
               ),
             ),
           ),
-        },
-      ],
+          if (_noteOpen)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: AyahNoteEditor(key: ValueKey(_ayah.ref), ayah: _ayah.ref),
+            )
+          else
+            switch (documentAsync) {
+              AsyncError() => const SliverFillRemaining(
+                hasScrollBody: false,
+                child: _Message(AppStrings.tafsirLoadFailed),
+              ),
+              _ when paragraphs == null => const SliverToBoxAdapter(child: LinearProgressIndicator(minHeight: 2)),
+              _ => SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 48),
+                sliver: SliverList.builder(
+                  itemCount: paragraphs.length,
+                  // Built lazily: al-Qurtubi's longest entry has ~100k characters.
+                  itemBuilder: (context, i) =>
+                      TafsirParagraphView(key: ValueKey('${entry.id}-$i'), paragraph: paragraphs[i], options: options),
+                ),
+              ),
+            },
+        ],
+      ),
     );
   }
 }
@@ -239,88 +244,88 @@ class _SheetHeader extends ConsumerWidget {
     final bookmarked = ref.watch(isBookmarkedProvider(ayah.ref));
     final messenger = ScaffoldMessenger.of(context);
 
-    return Padding(
-      padding: const EdgeInsetsDirectional.fromSTEB(8, 0, 4, 0),
-      child: Row(
-        children: [
-          IconButton(
-            tooltip: AppStrings.previousAyah,
-            onPressed: onPrevious,
-            icon: const Icon(Icons.chevron_left),
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  AppStrings.ayahShort(surahName, toArabicDigits(ayah.number)),
-                  style: theme.textTheme.titleMedium,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (entry.coversRange)
+    // Compact icons: seven controls share the row, and the ayah title needs the room.
+    return IconButtonTheme(
+      data: const IconButtonThemeData(style: ButtonStyle(visualDensity: VisualDensity.compact)),
+      child: Padding(
+        padding: const EdgeInsetsDirectional.fromSTEB(4, 0, 4, 0),
+        child: Row(
+          children: [
+            IconButton(tooltip: AppStrings.previousAyah, onPressed: onPrevious, icon: const Icon(Icons.chevron_left)),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    AppStrings.commentaryRange(
-                      '${toArabicDigits(entry.first.ayah)}–${toArabicDigits(entry.last.ayah)}',
-                    ),
-                    style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.primary),
+                    AppStrings.ayahShort(surahName, toArabicDigits(ayah.number)),
+                    style: theme.textTheme.titleMedium,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-              ],
+                  if (entry.coversRange)
+                    Text(
+                      AppStrings.commentaryRange(
+                        '${toArabicDigits(entry.first.ayah)}–${toArabicDigits(entry.last.ayah)}',
+                      ),
+                      style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.primary),
+                    ),
+                ],
+              ),
             ),
-          ),
-          IconButton(
-            tooltip: AppStrings.nextAyah,
-            onPressed: onNext,
-            icon: const Icon(Icons.chevron_right),
-          ),
-          IconButton(
-            tooltip: AppStrings.myNote,
-            icon: Icon(ref.watch(noteProvider(ayah.ref)) == null ? Icons.edit_outlined : Icons.edit_note),
-            onPressed: onNote,
-          ),
-          IconButton(
-            tooltip: AppStrings.copy,
-            icon: const Icon(Icons.copy_outlined),
-            onPressed: () async {
-              final text = await _shareText(ref);
-              await Clipboard.setData(ClipboardData(text: text));
-              messenger.showSnackBar(const SnackBar(content: Text(AppStrings.copied)));
-            },
-          ),
-          Builder(
-            builder: (buttonContext) => IconButton(
-              tooltip: AppStrings.share,
-              icon: const Icon(Icons.share_outlined),
+            IconButton(tooltip: AppStrings.nextAyah, onPressed: onNext, icon: const Icon(Icons.chevron_right)),
+            IconButton(
+              tooltip: AppStrings.myNote,
+              icon: Icon(ref.watch(noteProvider(ayah.ref)) == null ? Icons.edit_outlined : Icons.edit_note),
+              onPressed: onNote,
+            ),
+            IconButton(
+              tooltip: AppStrings.copy,
+              icon: const Icon(Icons.copy_outlined),
               onPressed: () async {
-                final box = buttonContext.findRenderObject() as RenderBox?;
                 final text = await _shareText(ref);
-                await SharePlus.instance.share(ShareParams(
-                  text: text,
-                  sharePositionOrigin: box == null ? null : box.localToGlobal(Offset.zero) & box.size,
-                ));
+                await Clipboard.setData(ClipboardData(text: text));
+                messenger.showSnackBar(const SnackBar(content: Text(AppStrings.copied)));
               },
             ),
-          ),
-          IconButton(
-            tooltip: bookmarked ? AppStrings.removeBookmark : AppStrings.bookmark,
-            isSelected: bookmarked,
-            icon: const Icon(Icons.bookmark_add_outlined),
-            selectedIcon: const Icon(Icons.bookmark),
-            onPressed: () {
-              final added = ref.read(bookmarksProvider.notifier).toggle(ayah.ref);
-              messenger.showSnackBar(SnackBar(
-                content: Text(added ? AppStrings.bookmarkAdded : AppStrings.bookmarkRemoved),
-                duration: const Duration(seconds: 2),
-              ));
-            },
-          ),
-        ],
+            Builder(
+              builder: (buttonContext) => IconButton(
+                tooltip: AppStrings.share,
+                icon: const Icon(Icons.share_outlined),
+                onPressed: () async {
+                  final box = buttonContext.findRenderObject() as RenderBox?;
+                  final text = await _shareText(ref);
+                  await SharePlus.instance.share(
+                    ShareParams(
+                      text: text,
+                      sharePositionOrigin: box == null ? null : box.localToGlobal(Offset.zero) & box.size,
+                    ),
+                  );
+                },
+              ),
+            ),
+            IconButton(
+              tooltip: bookmarked ? AppStrings.removeBookmark : AppStrings.bookmark,
+              isSelected: bookmarked,
+              icon: const Icon(Icons.bookmark_add_outlined),
+              selectedIcon: const Icon(Icons.bookmark),
+              onPressed: () {
+                final added = ref.read(bookmarksProvider.notifier).toggle(ayah.ref);
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text(added ? AppStrings.bookmarkAdded : AppStrings.bookmarkRemoved),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _SourcePills extends StatelessWidget {
+class _SourcePills extends StatefulWidget {
   const _SourcePills({
     required this.entries,
     required this.selected,
@@ -342,8 +347,34 @@ class _SourcePills extends StatelessWidget {
   final VoidCallback onNoteSelected;
 
   @override
+  State<_SourcePills> createState() => _SourcePillsState();
+}
+
+class _SourcePillsState extends State<_SourcePills> {
+  final _selectedKey = GlobalKey();
+  Object? _shownSelection;
+
+  /// Brings the selected pill on screen when the selection changes (stepping
+  /// ayahs, or the note pill appearing), so it is never left scrolled away.
+  void _revealSelected(Object selection) {
+    if (selection == _shownSelection) return;
+    _shownSelection = selection;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final context = _selectedKey.currentContext;
+      if (context != null && context.mounted) {
+        Scrollable.ensureVisible(context, alignment: 0.5, duration: const Duration(milliseconds: 250));
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
+    final entries = widget.entries;
+    final showNotePill = widget.showNotePill;
+    final noteSelected = widget.noteSelected;
+    final selected = widget.selected;
+    _revealSelected(noteSelected ? 'note' : selected?.id ?? 'none');
     return SizedBox(
       height: 52,
       child: ListView.separated(
@@ -355,18 +386,20 @@ class _SourcePills extends StatelessWidget {
           // The reader's own note comes first, so it is never scrolled out of sight.
           if (showNotePill && index == 0) {
             return ChoiceChip(
+              key: noteSelected ? _selectedKey : null,
               avatar: Icon(Icons.edit_note, size: 18, color: palette.primary),
               label: const Text(AppStrings.myNote),
               selected: noteSelected,
               showCheckmark: false,
               side: BorderSide(color: noteSelected ? palette.secondaryBorder : palette.border),
-              onSelected: (_) => onNoteSelected(),
+              onSelected: (_) => widget.onNoteSelected(),
             );
           }
           final e = entries[index - (showNotePill ? 1 : 0)];
-          final minutes = toArabicDigits(e.readingMinutes(hideIsnad: hideIsnad));
+          final minutes = toArabicDigits(e.readingMinutes(hideIsnad: widget.hideIsnad));
           final isSelected = e.id == selected?.id;
           return ChoiceChip(
+            key: isSelected ? _selectedKey : null,
             label: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -382,7 +415,7 @@ class _SourcePills extends StatelessWidget {
             selected: isSelected,
             showCheckmark: false,
             side: BorderSide(color: isSelected ? palette.secondaryBorder : palette.border),
-            onSelected: (_) => onSelected(e.source.id),
+            onSelected: (_) => widget.onSelected(e.source.id),
           );
         },
       ),

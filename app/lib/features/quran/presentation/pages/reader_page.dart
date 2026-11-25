@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -26,8 +27,9 @@ class ReaderPage extends ConsumerStatefulWidget {
   /// Briefly highlight [target] (after a jump or from a bookmark).
   final bool highlight;
 
-  static Route<void> route(AyahRef target, {bool highlight = false}) =>
-      MaterialPageRoute(builder: (_) => ReaderPage(target: target, highlight: highlight));
+  static Route<void> route(AyahRef target, {bool highlight = false}) => MaterialPageRoute(
+    builder: (_) => ReaderPage(target: target, highlight: highlight),
+  );
 
   @override
   ConsumerState<ReaderPage> createState() => _ReaderPageState();
@@ -45,6 +47,12 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
   /// Only the mushaf text: the top bar is hidden (toggled by a tap on the page).
   bool _immersive = false;
 
+  /// The system bars' insets, kept at the largest seen. In focus mode Android
+  /// hides the bars and reports zero insets; keeping the space they had stops
+  /// the mushaf text from jumping or resizing when focus mode toggles.
+  double _topInset = 0;
+  double _bottomInset = 0;
+
   @override
   void initState() {
     super.initState();
@@ -53,7 +61,9 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
     _page = location?.page ?? 1;
     _controller = PageController(initialPage: _page - 1);
     // One font size for every page, measured on a few ordinary pages with the real font.
-    MushafFontScale.measure([for (final n in const [50, 150, 300, 450, 580]) repository.getPage(n)]);
+    MushafFontScale.measure([
+      for (final n in const [50, 150, 300, 450, 580]) repository.getPage(n),
+    ]);
     if (widget.highlight && location != null) _flashHighlight(location.ayahId);
     _scheduleSave(); // the page it opens on counts as read too
     // The hint covers the bottom lines, so it only stays a few seconds.
@@ -68,7 +78,16 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
     _highlightTimer?.cancel();
     _hintTimer?.cancel();
     _controller.dispose();
+    // Leaving the reader always brings the status and navigation bars back.
+    if (_immersive) SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
+  }
+
+  /// A tap on the page: focus mode hides our bar and the phone's status and
+  /// navigation bars, leaving only the mushaf (as in Tarteel); another tap shows them.
+  void _toggleFocus() {
+    setState(() => _immersive = !_immersive);
+    SystemChrome.setEnabledSystemUIMode(_immersive ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge);
   }
 
   void _flashHighlight(int ayahId) {
@@ -128,14 +147,22 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
     final page = ref.watch(mushafPageProvider(_page));
     final showHint = _hintVisible && !_immersive && !ref.watch(settingsProvider.select((s) => s.tafsirHintSeen));
     final palette = AppPalette.of(context);
-    final topInset = MediaQuery.paddingOf(context).top;
+    final insets = MediaQuery.paddingOf(context);
+    _topInset = math.max(_topInset, insets.top);
+    _bottomInset = math.max(_bottomInset, insets.bottom);
     const animation = Duration(milliseconds: 220);
 
     final bar = AppBar(
+      toolbarHeight: _barHeight,
       titleSpacing: 0,
       title: _PageTitle(page: page),
       actions: [
-        IconButton(tooltip: AppStrings.jumpToAyah, icon: const Icon(Icons.search), onPressed: _jump),
+        IconButton(
+          tooltip: AppStrings.jumpToAyah,
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(Icons.search, size: 22),
+          onPressed: _jump,
+        ),
         const SizedBox(width: 4),
       ],
     );
@@ -148,22 +175,19 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
         body: Stack(
           children: [
             Padding(
-              padding: EdgeInsets.only(top: topInset + kToolbarHeight),
-              child: SafeArea(
-                top: false,
-                // In a right-to-left app the next page sits to the left, as in a printed mushaf.
-                child: PageView.builder(
-                  controller: _controller,
-                  itemCount: MushafConfig.pageCount,
-                  onPageChanged: _onPageChanged,
-                  itemBuilder: (context, index) => _PageFrame(
+              padding: EdgeInsets.only(top: _topInset + _barHeight, bottom: _bottomInset),
+              // In a right-to-left app the next page sits to the left, as in a printed mushaf.
+              child: PageView.builder(
+                controller: _controller,
+                itemCount: MushafConfig.pageCount,
+                onPageChanged: _onPageChanged,
+                itemBuilder: (context, index) => _PageFrame(
+                  pageNumber: index + 1,
+                  child: MushafPageView(
                     pageNumber: index + 1,
-                    child: MushafPageView(
-                      pageNumber: index + 1,
-                      highlightedAyahId: _highlighted,
-                      onAyahLongPress: _openTafsir,
-                      onTap: () => setState(() => _immersive = !_immersive),
-                    ),
+                    highlightedAyahId: _highlighted,
+                    onAyahLongPress: _openTafsir,
+                    onTap: _toggleFocus,
                   ),
                 ),
               ),
@@ -191,6 +215,9 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
   }
 }
 
+/// The reader's slim top bar: one line, so the mushaf keeps most of the screen.
+const _barHeight = 48.0;
+
 class _PageTitle extends ConsumerWidget {
   const _PageTitle({required this.page});
 
@@ -199,19 +226,27 @@ class _PageTitle extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final surahs = ref.watch(surahsProvider).value;
-    final name = surahs == null ? '' : AppStrings.surahPrefix(surahs[page.surah - 1].nameAr);
+    final name = surahs == null ? '' : surahs[page.surah - 1].nameAr;
     final palette = AppPalette.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
+    // One line: the surah name, then the juz and page in small muted text.
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
       children: [
-        Text(name, style: Theme.of(context).appBarTheme.titleTextStyle?.copyWith(fontSize: 18)),
-        Text(
-          AppStrings.pageInfo(
-            page: toArabicDigits(page.number),
-            juz: toArabicDigits(page.juz),
-            hizb: toArabicDigits(page.hizb),
+        Flexible(
+          child: Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).appBarTheme.titleTextStyle?.copyWith(fontSize: 17),
           ),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          AppStrings.joinFacts([
+            AppStrings.juz(toArabicDigits(page.juz)),
+            AppStrings.pageShort(toArabicDigits(page.number)),
+          ]),
           style: TextStyle(fontSize: 12.5, color: palette.muted),
         ),
       ],
@@ -261,7 +296,9 @@ class _LongPressHint extends ConsumerWidget {
           children: [
             Icon(Icons.touch_app_outlined, color: palette.primary),
             const SizedBox(width: 12),
-            Expanded(child: Text(AppStrings.longPressHint, style: TextStyle(color: palette.title))),
+            Expanded(
+              child: Text(AppStrings.longPressHint, style: TextStyle(color: palette.title)),
+            ),
             TextButton(
               onPressed: () => ref.read(settingsProvider.notifier).update((s) => s.copyWith(tafsirHintSeen: true)),
               child: const Text(AppStrings.gotIt),

@@ -48,8 +48,32 @@ class _BookmarkTile extends ConsumerWidget {
 
     return Dismissible(
       key: ValueKey(bookmark.ref),
-      onDismissed: (_) => ref.read(bookmarksProvider.notifier).toggle(bookmark.ref),
-      background: ColoredBox(color: Theme.of(context).colorScheme.errorContainer),
+      onDismissed: (_) {
+        final bookmarks = ref.read(bookmarksProvider.notifier);
+        bookmarks.toggle(bookmark.ref);
+        // A swipe is easy to do by accident, so the removal can be undone.
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: const Text(AppStrings.bookmarkRemoved),
+              action: SnackBarAction(label: AppStrings.undo, onPressed: () => bookmarks.toggle(bookmark.ref)),
+            ),
+          );
+      },
+      background: ColoredBox(
+        color: Theme.of(context).colorScheme.error,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.onError),
+              Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.onError),
+            ],
+          ),
+        ),
+      ),
       child: ListTile(
         title: Text(AppStrings.surahAyah(name, toArabicDigits(bookmark.ref.ayah))),
         subtitle: ayah == null ? null : QuranText(ayah.text, fontSize: 18, maxLines: 2),

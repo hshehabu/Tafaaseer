@@ -1,7 +1,7 @@
 name: tafaseer
 description: "Quran reader with offline tafsir on long-press: al-Muyassar, al-Sa'di, al-Baghawi, Ibn Kathir, al-Qurtubi, al-Tabari."
 publish_to: 'none'
-version: 3.0.0+3
+version: 4.0.0+4
 
 environment:
   sdk: ^3.12.2
