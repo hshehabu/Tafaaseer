@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/config/app_config.dart';
@@ -37,19 +38,30 @@ class MushafPageView extends ConsumerStatefulWidget {
 }
 
 class _MushafPageViewState extends ConsumerState<MushafPageView> {
-  _PageLayout? _layout;
-
   _PageLayout _layoutFor(MushafPage page, Size size, AppPalette palette, String bismillah, List<Surah> surahs) {
-    final current = _layout;
-    if (current != null && current.matches(page, size, palette, bismillah)) return current;
-    current?.dispose();
-    return _layout = _PageLayout(page: page, size: size, palette: palette, bismillah: bismillah, surahs: surahs);
+    final key = _LayoutCache.key(page.number, size, palette, bismillah);
+    final layout = _LayoutCache.get(key) ??
+        _LayoutCache.put(key, _PageLayout(page: page, size: size, palette: palette, bismillah: bismillah, surahs: surahs));
+    _prepareNeighbours(page.number, size, palette, bismillah, surahs);
+    return layout;
   }
 
-  @override
-  void dispose() {
-    _layout?.dispose();
-    super.dispose();
+  /// Lays out the next and previous pages while the phone is idle (right after
+  /// a page settles), so a swipe only draws pages that are already prepared.
+  /// Shaping a page of Hafs text takes ~30 ms on a mid-range phone: done during
+  /// a swipe, that is a visible stutter.
+  void _prepareNeighbours(int number, Size size, AppPalette palette, String bismillah, List<Surah> surahs) {
+    final repository = ref.read(quranRepositoryProvider);
+    for (final n in [number + 1, number - 1]) {
+      if (n < 1 || n > MushafConfig.pageCount) continue;
+      final key = _LayoutCache.key(n, size, palette, bismillah);
+      if (_LayoutCache.contains(key)) continue;
+      SchedulerBinding.instance.scheduleTask(() {
+        if (_LayoutCache.contains(key)) return;
+        final page = repository.getPage(n);
+        _LayoutCache.put(key, _PageLayout(page: page, size: size, palette: palette, bismillah: bismillah, surahs: surahs));
+      }, Priority.idle);
+    }
   }
 
   @override
@@ -85,6 +97,34 @@ class _MushafPageViewState extends ConsumerState<MushafPageView> {
   }
 }
 
+/// Recently laid-out pages, shared by every page widget: the page on screen,
+/// its prepared neighbours, and the last few visited.
+abstract final class _LayoutCache {
+  static const _capacity = 7;
+  static final _entries = <String, _PageLayout>{}; // insertion-ordered: oldest first
+
+  static String key(int page, Size size, AppPalette palette, String bismillah) =>
+      '$page|${size.width}|${size.height}|${identityHashCode(palette)}|${bismillah.hashCode}';
+
+  static bool contains(String key) => _entries.containsKey(key);
+
+  static _PageLayout? get(String key) {
+    final layout = _entries.remove(key);
+    if (layout != null) _entries[key] = layout; // most recently used
+    return layout;
+  }
+
+  /// Evicted layouts are left to the garbage collector rather than disposed,
+  /// in case a page widget is still drawing one for a last frame.
+  static _PageLayout put(String key, _PageLayout layout) {
+    _entries[key] = layout;
+    while (_entries.length > _capacity) {
+      _entries.remove(_entries.keys.first);
+    }
+    return layout;
+  }
+}
+
 /// Everything measured for one page at one size: word positions, painters.
 class _PageLayout {
   _PageLayout({
@@ -109,9 +149,6 @@ class _PageLayout {
   final List<_Decoration> decorations = [];
   late final String semanticsLabel;
 
-  bool matches(MushafPage p, Size s, AppPalette pal, String b) =>
-      identical(p, page) && s == size && identical(pal, palette) && b == bismillah;
-
   TextStyle _quranStyle(double size) => TextStyle(
     fontFamily: QuranFontConfig.family,
     fontFamilyFallback: QuranFontConfig.fallback,
@@ -124,14 +161,20 @@ class _PageLayout {
       TextPainter(text: TextSpan(text: text, style: style), textDirection: TextDirection.rtl, maxLines: 1)..layout();
 
   void _build(List<Surah> surahs) {
-    const lines = MushafConfig.linesPerPage;
-    lineHeight = size.height / lines;
-    fontSize = _pageFontSize();
+    lineHeight = size.height / MushafConfig.linesPerPage;
+    // Each ayah line is measured once at the base size, to pick the page's font size.
+    final base = math.min(lineHeight / 1.75, size.width / MushafFontScale.typicalLinePerFontPx);
+    final baseStyle = _quranStyle(base);
+    final widthAtBase = <MushafLine, double>{
+      for (final line in page.lines.where((l) => l.kind == MushafLineKind.ayah))
+        line: _measure(line.words.map((w) => w.text).join(' '), baseStyle),
+    };
+    fontSize = _pageFontSize(base, widthAtBase.values.toList());
     // The two opening pages have fewer lines; they sit in the middle.
     top = page.isOpening ? (size.height - page.lines.length * lineHeight) / 2 : 0;
 
     final style = _quranStyle(fontSize);
-    final spaceWidth = _painter(' ', style).width;
+    final spaceWidth = _measure(' ', style);
     final labels = <String>[];
 
     for (var i = 0; i < page.lines.length; i++) {
@@ -220,23 +263,20 @@ class _PageLayout {
   /// One base size for the whole mushaf (from a typical line), nudged per page
   /// so that a page of short lines doesn't look sparse. The nudge is small
   /// enough (-6%..+8%) that swiping between pages doesn't show a jump.
-  double _pageFontSize() {
+  double _pageFontSize(double base, List<double> widths) {
     final heightLimit = lineHeight / 1.6;
-    final base = math.min(lineHeight / 1.75, size.width / MushafFontScale.typicalLinePerFontPx);
-    final ayahLines = page.lines.where((l) => l.kind == MushafLineKind.ayah).toList();
-    if (page.isOpening || ayahLines.length < 4) return base;
-
-    final style = _quranStyle(base);
-    final widths = <double>[];
-    for (final line in ayahLines) {
-      final p = _painter(line.words.map((w) => w.text).join(' '), style);
-      widths.add(p.width);
-      p.dispose();
-    }
+    if (page.isOpening || widths.length < 4) return base;
     widths.sort();
-    final typical = widths[(widths.length * 0.75).floor().clamp(0, widths.length - 1)];
+    final typical = widths[(widths.length * _typicalQuantile).floor().clamp(0, widths.length - 1)];
     final fitted = base * size.width / typical;
     return math.min(fitted.clamp(base * 0.94, base * 1.08), heightLimit);
+  }
+
+  double _measure(String text, TextStyle style) {
+    final p = _painter(text, style);
+    final width = p.width;
+    p.dispose();
+    return width;
   }
 
   void _placeLine(MushafLine line, double y, TextStyle style, double spaceWidth) {
@@ -314,6 +354,7 @@ class _PageLayout {
   }
 }
 
+/// One word, its painter, and where it is on the page.
 class _PlacedWord {
   _PlacedWord({required this.word, required this.painter, required this.rect, required this.joinRight});
 
@@ -417,6 +458,10 @@ class _PagePainter extends CustomPainter {
   bool shouldRepaint(_PagePainter old) => old.layout != layout || old.highlightedAyahId != highlightedAyahId;
 }
 
+/// The line width the font is sized for, as a quantile of all lines (0.75:
+/// wider lines tighten their gaps, and only the widest few shrink a little).
+const _typicalQuantile = 0.75;
+
 /// How wide a typical mushaf line is per pixel of font size, measured once
 /// with the real font, so every page starts from the same font size.
 abstract final class MushafFontScale {
@@ -452,6 +497,6 @@ abstract final class MushafFontScale {
     }
     if (widths.isEmpty) return;
     widths.sort();
-    _typicalLinePerFontPx = widths[(widths.length * 0.75).floor().clamp(0, widths.length - 1)] / probe;
+    _typicalLinePerFontPx = widths[(widths.length * _typicalQuantile).floor().clamp(0, widths.length - 1)] / probe;
   }
 }

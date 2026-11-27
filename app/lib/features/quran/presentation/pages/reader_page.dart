@@ -31,6 +31,12 @@ class ReaderPage extends ConsumerStatefulWidget {
     builder: (_) => ReaderPage(target: target, highlight: highlight),
   );
 
+  /// Opens at once, with no slide: used to resume reading when the app starts.
+  static Route<void> resumeRoute(AyahRef target) => PageRouteBuilder(
+    transitionDuration: Duration.zero,
+    pageBuilder: (_, _, _) => ReaderPage(target: target),
+  );
+
   @override
   ConsumerState<ReaderPage> createState() => _ReaderPageState();
 }
@@ -148,6 +154,8 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
     final showHint = _hintVisible && !_immersive && !ref.watch(settingsProvider.select((s) => s.tafsirHintSeen));
     final palette = AppPalette.of(context);
     final insets = MediaQuery.paddingOf(context);
+    final size = MediaQuery.sizeOf(context);
+    final landscape = size.width > size.height;
     _topInset = math.max(_topInset, insets.top);
     _bottomInset = math.max(_bottomInset, insets.bottom);
     const animation = Duration(milliseconds: 220);
@@ -172,23 +180,42 @@ class _ReaderPageState extends ConsumerState<ReaderPage> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: palette.brightness == Brightness.dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
       child: Scaffold(
+        // The keyboard (jump to ayah) must not shrink the page: that re-lays out
+        // the mushaf at a smaller size behind the dialog.
+        resizeToAvoidBottomInset: false,
         body: Stack(
           children: [
             Padding(
-              padding: EdgeInsets.only(top: _topInset + _barHeight, bottom: _bottomInset),
+              // Portrait keeps the bar's space even in focus mode, so the text never moves.
+              // Landscape pages scroll at a fixed height, so focus mode can use that space.
+              padding: EdgeInsets.only(
+                top: _immersive && landscape ? 0 : _topInset + _barHeight,
+                bottom: _immersive && landscape ? 0 : _bottomInset,
+              ),
               // In a right-to-left app the next page sits to the left, as in a printed mushaf.
               child: PageView.builder(
                 controller: _controller,
+                physics: const _EasyPageTurnPhysics(),
                 itemCount: MushafConfig.pageCount,
                 onPageChanged: _onPageChanged,
-                itemBuilder: (context, index) => _PageFrame(
-                  pageNumber: index + 1,
-                  child: MushafPageView(
-                    pageNumber: index + 1,
-                    highlightedAyahId: _highlighted,
-                    onAyahLongPress: _openTafsir,
-                    onTap: _toggleFocus,
-                  ),
+                itemBuilder: (context, index) => LayoutBuilder(
+                  builder: (context, box) {
+                    final page = _PageFrame(
+                      pageNumber: index + 1,
+                      child: MushafPageView(
+                        pageNumber: index + 1,
+                        highlightedAyahId: _highlighted,
+                        onAyahLongPress: _openTafsir,
+                        onTap: _toggleFocus,
+                      ),
+                    );
+                    if (box.maxWidth <= box.maxHeight) return page;
+                    // Landscape: the page takes the full width at a readable size and
+                    // scrolls up and down, instead of shrinking to fit the short height.
+                    return SingleChildScrollView(
+                      child: SizedBox(height: box.maxWidth * _landscapePageAspect, child: page),
+                    );
+                  },
                 ),
               ),
             ),
@@ -255,6 +282,10 @@ class _PageTitle extends ConsumerWidget {
 }
 
 /// Page margins and the page number under the text.
+/// Landscape pages are this many times as tall as they are wide (a printed
+/// Madani page is about 1.5), so the text keeps its portrait proportions.
+const _landscapePageAspect = 1.5;
+
 class _PageFrame extends StatelessWidget {
   const _PageFrame({required this.pageNumber, required this.child});
 
@@ -264,18 +295,58 @@ class _PageFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = AppPalette.of(context);
-    return Padding(
-      // Narrow side margins, as in Tarteel: the width sets the mushaf font size.
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 2),
-      child: Column(
+    // The stacked page edges of a mushaf, on each page's outer edge: odd pages
+    // sit on the right of a spread, so their outer edge is on the right; even
+    // pages on the left. The lines move with the page during a swipe.
+    final boundOnLeft = pageNumber.isEven;
+    final edge = SizedBox(width: 4, child: CustomPaint(painter: _PageEdgePainter(palette.border.withValues(alpha: 0.5))));
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(child: child),
-          const SizedBox(height: 4),
-          Text(toArabicDigits(pageNumber), style: TextStyle(fontSize: 13, color: palette.muted)),
+          if (boundOnLeft) edge,
+          Expanded(
+            child: Directionality(
+              textDirection: TextDirection.rtl,
+              child: Padding(
+                // Narrow side margins, as in Tarteel: the width sets the mushaf font size.
+                padding: const EdgeInsets.fromLTRB(6, 8, 6, 2),
+                child: Column(
+                  children: [
+                    Expanded(child: child),
+                    const SizedBox(height: 4),
+                    Text(toArabicDigits(pageNumber), style: TextStyle(fontSize: 13, color: palette.muted)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (!boundOnLeft) edge,
         ],
       ),
     );
   }
+}
+
+/// Three hairlines down the outer edge, like the stacked pages of a mushaf.
+class _PageEdgePainter extends CustomPainter {
+  _PageEdgePainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 0.6;
+    for (final x in const [0.5, 2.0, 3.5]) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PageEdgePainter old) => old.color != color;
 }
 
 class _LongPressHint extends ConsumerWidget {
@@ -308,4 +379,44 @@ class _LongPressHint extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Page turns that follow the finger: any flick turns the page in its
+/// direction, however short. Only a slow drag that stops snaps back to the
+/// nearest page. (PageView's own physics turn the page only past halfway.)
+class _EasyPageTurnPhysics extends ScrollPhysics {
+  const _EasyPageTurnPhysics({super.parent});
+
+  /// Slower than this (logical px/s) counts as letting go, not a flick.
+  static const _flick = 80.0;
+
+  @override
+  _EasyPageTurnPhysics applyTo(ScrollPhysics? ancestor) => _EasyPageTurnPhysics(parent: buildParent(ancestor));
+
+  @override
+  double get minFlingVelocity => _flick;
+
+  @override
+  Simulation? createBallisticSimulation(ScrollMetrics position, double velocity) {
+    final atStart = velocity <= 0 && position.pixels <= position.minScrollExtent;
+    final atEnd = velocity >= 0 && position.pixels >= position.maxScrollExtent;
+    if (atStart || atEnd) return super.createBallisticSimulation(position, velocity);
+
+    final width = position.viewportDimension;
+    final page = position.pixels / width;
+    final double target;
+    if (velocity > _flick) {
+      target = page.floorToDouble() + 1;
+    } else if (velocity < -_flick) {
+      target = page.ceilToDouble() - 1;
+    } else {
+      target = page.roundToDouble();
+    }
+    final pixels = (target * width).clamp(position.minScrollExtent, position.maxScrollExtent);
+    if ((pixels - position.pixels).abs() < toleranceFor(position).distance) return null;
+    return ScrollSpringSimulation(spring, position.pixels, pixels, velocity, tolerance: toleranceFor(position));
+  }
+
+  @override
+  bool get allowImplicitScrolling => false;
 }

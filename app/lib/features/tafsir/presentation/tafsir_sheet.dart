@@ -29,7 +29,7 @@ Future<void> showTafsirSheet(BuildContext context, {required Ayah ayah, ValueCha
     useSafeArea: true,
     // Light enough that the highlighted ayah stays visible above the sheet.
     barrierColor: Colors.black.withValues(alpha: 0.12),
-    // Only the handle resizes the sheet; scrolling a long tafsir scrolls the text inside it.
+    // HandleSizedSheet does the dragging (text scroll and handle), so the modal's own drag is off.
     enableDrag: false,
     builder: (_) => HandleSizedSheet(
       builder: (context, scrollController) =>
@@ -249,74 +249,93 @@ class _SheetHeader extends ConsumerWidget {
       data: const IconButtonThemeData(style: ButtonStyle(visualDensity: VisualDensity.compact)),
       child: Padding(
         padding: const EdgeInsetsDirectional.fromSTEB(4, 0, 4, 0),
+        // Two groups: the arrows with the title, and the actions. The free space
+        // goes between them, so the title is never squeezed by a spacer.
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            IconButton(tooltip: AppStrings.previousAyah, onPressed: onPrevious, icon: const Icon(Icons.chevron_left)),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            Flexible(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    AppStrings.ayahShort(surahName, toArabicDigits(ayah.number)),
-                    style: theme.textTheme.titleMedium,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  IconButton(
+                    tooltip: AppStrings.previousAyah,
+                    onPressed: onPrevious,
+                    icon: const Icon(Icons.chevron_left),
                   ),
-                  if (entry.coversRange)
-                    Text(
-                      AppStrings.commentaryRange(
-                        '${toArabicDigits(entry.first.ayah)}–${toArabicDigits(entry.last.ayah)}',
-                      ),
-                      style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.primary),
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          AppStrings.ayahShort(surahName, toArabicDigits(ayah.number)),
+                          style: theme.textTheme.titleMedium,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (entry.coversRange)
+                          Text(
+                            AppStrings.commentaryRange(
+                              '${toArabicDigits(entry.first.ayah)}–${toArabicDigits(entry.last.ayah)}',
+                            ),
+                            style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.primary),
+                          ),
+                      ],
                     ),
+                  ),
+                  IconButton(tooltip: AppStrings.nextAyah, onPressed: onNext, icon: const Icon(Icons.chevron_right)),
                 ],
               ),
             ),
-            IconButton(tooltip: AppStrings.nextAyah, onPressed: onNext, icon: const Icon(Icons.chevron_right)),
-            IconButton(
-              tooltip: AppStrings.myNote,
-              icon: Icon(ref.watch(noteProvider(ayah.ref)) == null ? Icons.edit_outlined : Icons.edit_note),
-              onPressed: onNote,
-            ),
-            IconButton(
-              tooltip: AppStrings.copy,
-              icon: const Icon(Icons.copy_outlined),
-              onPressed: () async {
-                final text = await _shareText(ref);
-                await Clipboard.setData(ClipboardData(text: text));
-                messenger.showSnackBar(const SnackBar(content: Text(AppStrings.copied)));
-              },
-            ),
-            Builder(
-              builder: (buttonContext) => IconButton(
-                tooltip: AppStrings.share,
-                icon: const Icon(Icons.share_outlined),
-                onPressed: () async {
-                  final box = buttonContext.findRenderObject() as RenderBox?;
-                  final text = await _shareText(ref);
-                  await SharePlus.instance.share(
-                    ShareParams(
-                      text: text,
-                      sharePositionOrigin: box == null ? null : box.localToGlobal(Offset.zero) & box.size,
-                    ),
-                  );
-                },
-              ),
-            ),
-            IconButton(
-              tooltip: bookmarked ? AppStrings.removeBookmark : AppStrings.bookmark,
-              isSelected: bookmarked,
-              icon: const Icon(Icons.bookmark_add_outlined),
-              selectedIcon: const Icon(Icons.bookmark),
-              onPressed: () {
-                final added = ref.read(bookmarksProvider.notifier).toggle(ayah.ref);
-                messenger.showSnackBar(
-                  SnackBar(
-                    content: Text(added ? AppStrings.bookmarkAdded : AppStrings.bookmarkRemoved),
-                    duration: const Duration(seconds: 2),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: AppStrings.myNote,
+                  icon: Icon(ref.watch(noteProvider(ayah.ref)) == null ? Icons.edit_outlined : Icons.edit_note),
+                  onPressed: onNote,
+                ),
+                IconButton(
+                  tooltip: AppStrings.copy,
+                  icon: const Icon(Icons.copy_outlined),
+                  onPressed: () async {
+                    final text = await _shareText(ref);
+                    await Clipboard.setData(ClipboardData(text: text));
+                    messenger.showSnackBar(const SnackBar(content: Text(AppStrings.copied)));
+                  },
+                ),
+                Builder(
+                  builder: (buttonContext) => IconButton(
+                    tooltip: AppStrings.share,
+                    icon: const Icon(Icons.share_outlined),
+                    onPressed: () async {
+                      final box = buttonContext.findRenderObject() as RenderBox?;
+                      final text = await _shareText(ref);
+                      await SharePlus.instance.share(
+                        ShareParams(
+                          text: text,
+                          sharePositionOrigin: box == null ? null : box.localToGlobal(Offset.zero) & box.size,
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
+                ),
+                IconButton(
+                  tooltip: bookmarked ? AppStrings.removeBookmark : AppStrings.bookmark,
+                  isSelected: bookmarked,
+                  icon: const Icon(Icons.bookmark_add_outlined),
+                  selectedIcon: const Icon(Icons.bookmark),
+                  onPressed: () {
+                    final added = ref.read(bookmarksProvider.notifier).toggle(ayah.ref);
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: Text(added ? AppStrings.bookmarkAdded : AppStrings.bookmarkRemoved),
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
           ],
         ),

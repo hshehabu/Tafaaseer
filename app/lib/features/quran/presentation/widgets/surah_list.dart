@@ -10,9 +10,8 @@ import '../../../../core/theme/app_palette.dart';
 import '../../domain/entities/surah.dart';
 import '../pages/reader_page.dart';
 import '../providers/quran_providers.dart';
-import 'continue_reading_card.dart';
 
-/// Surah index (D2): search, "continue reading" (D5), and the 114 surahs with
+/// Surah index (D2): search and the 114 surahs with
 /// their names in calligraphy and the page each starts on.
 class SurahList extends ConsumerStatefulWidget {
   const SurahList({super.key});
@@ -88,10 +87,9 @@ class _SurahListState extends ConsumerState<SurahList> {
           child: ListView.builder(
             padding: const EdgeInsets.only(bottom: 28),
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            itemCount: shown.length + (searching ? 0 : 1),
+            itemCount: shown.length,
             itemBuilder: (context, i) {
-              if (!searching && i == 0) return const ContinueReadingCard();
-              final surah = shown[i - (searching ? 0 : 1)];
+              final surah = shown[i];
               return _SurahTile(surah: surah, isLastRead: surah.id == lastRead);
             },
           ),
